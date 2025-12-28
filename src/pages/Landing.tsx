@@ -17,11 +17,6 @@ export default function Landing() {
   const navigate = useNavigate();
   const mockLogin = useMockLogin();
 
-  const handleGetStarted = () => {
-    mockLogin();
-    navigate('/app');
-  };
-
   const handleViewSample = () => {
     mockLogin();
     navigate('/app/analyses/analysis-1');
@@ -39,8 +34,8 @@ export default function Landing() {
             <span className="text-xl font-semibold tracking-tight">PulseMine</span>
           </Link>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" onClick={handleGetStarted}>Sign in</Button>
-            <Button onClick={handleGetStarted}>Get Started</Button>
+            <Button variant="ghost" onClick={() => navigate('/signin')}>Sign in</Button>
+            <Button onClick={() => navigate('/signup')}>Get Started</Button>
           </div>
         </div>
       </header>
@@ -62,7 +57,7 @@ export default function Landing() {
               and generates actionable micro-SaaS ideas with MVP specs.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Button size="lg" className="h-12 px-8 text-base" onClick={handleGetStarted}>
+              <Button size="lg" className="h-12 px-8 text-base" onClick={() => navigate('/signup')}>
                 Start analyzing
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
@@ -178,7 +173,7 @@ export default function Landing() {
           <p className="text-muted-foreground text-lg mb-8">
             Start analyzing Reddit discussions and discover validated problems today.
           </p>
-          <Button size="lg" className="h-12 px-8 text-base" onClick={handleGetStarted}>
+          <Button size="lg" className="h-12 px-8 text-base" onClick={() => navigate('/signup')}>
             Get started free
             <ArrowRight className="ml-2 h-5 w-5" />
           </Button>
