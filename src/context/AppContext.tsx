@@ -14,16 +14,20 @@ interface AppContextType {
   setIdeas: (ideas: Idea[]) => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  globalTimeframe: string;
+  setGlobalTimeframe: (timeframe: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  // Auto-login with mock user for demo purposes
+  const [user, setUser] = useState<User | null>(mockUser);
   const [collections, setCollections] = useState<Collection[]>(mockCollections);
   const [analyses, setAnalyses] = useState<Analysis[]>(mockAnalyses);
   const [ideas, setIdeas] = useState<Idea[]>(mockIdeas);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [globalTimeframe, setGlobalTimeframe] = useState('7d');
 
   const isAuthenticated = user !== null;
 
@@ -41,6 +45,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setIdeas,
         sidebarOpen,
         setSidebarOpen,
+        globalTimeframe,
+        setGlobalTimeframe,
       }}
     >
       {children}
@@ -56,7 +62,6 @@ export function useApp() {
   return context;
 }
 
-// Helper to simulate login with mock user
 export function useMockLogin() {
   const { setUser } = useApp();
   return () => setUser(mockUser);

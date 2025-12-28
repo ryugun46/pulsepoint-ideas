@@ -7,11 +7,14 @@ import {
   Bell, 
   Settings,
   ChevronLeft,
-  Zap
+  Activity,
+  Menu
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useApp } from '@/context/AppContext';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { useState } from 'react';
 
 const navItems = [
   { label: 'Dashboard', href: '/app', icon: LayoutDashboard },
@@ -25,9 +28,8 @@ const bottomNavItems = [
   { label: 'Settings', href: '/app/settings', icon: Settings },
 ];
 
-export function Sidebar() {
+function NavContent({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const location = useLocation();
-  const { sidebarOpen, setSidebarOpen } = useApp();
 
   const isActive = (href: string) => {
     if (href === '/app') {
@@ -37,67 +39,102 @@ export function Sidebar() {
   };
 
   return (
-    <aside
-      className={cn(
-        'fixed left-0 top-0 z-40 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300',
-        sidebarOpen ? 'w-60' : 'w-16'
-      )}
-    >
-      <div className="flex h-full flex-col">
-        {/* Logo */}
-        <div className="flex h-16 items-center justify-between px-4 border-b border-sidebar-border">
-          <Link to="/app" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <Zap className="h-4 w-4 text-primary-foreground" />
-            </div>
-            {sidebarOpen && (
-              <span className="font-semibold text-foreground">PulseMine</span>
+    <div className="flex h-full flex-col">
+      {/* Logo */}
+      <div className="flex h-16 items-center justify-between px-4 border-b border-sidebar-border">
+        <Link to="/app" className="flex items-center gap-2.5" onClick={onNavigate}>
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary shadow-sm">
+            <Activity className="h-5 w-5 text-primary-foreground" />
+          </div>
+          {!collapsed && (
+            <span className="font-semibold text-foreground text-lg tracking-tight">PulseMine</span>
+          )}
+        </Link>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 space-y-1 p-3 pt-4">
+        <div className={cn("mb-3", collapsed ? "px-1" : "px-2")}>
+          {!collapsed && (
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Menu</span>
+          )}
+        </div>
+        {navItems.map((item) => (
+          <Link
+            key={item.href}
+            to={item.href}
+            onClick={onNavigate}
+            className={cn(
+              'sidebar-link',
+              isActive(item.href) && 'sidebar-link-active'
             )}
+          >
+            <item.icon className="h-5 w-5 shrink-0" />
+            {!collapsed && <span>{item.label}</span>}
           </Link>
+        ))}
+      </nav>
+
+      {/* Bottom Navigation */}
+      <div className="border-t border-sidebar-border p-3">
+        {bottomNavItems.map((item) => (
+          <Link
+            key={item.href}
+            to={item.href}
+            onClick={onNavigate}
+            className={cn(
+              'sidebar-link',
+              isActive(item.href) && 'sidebar-link-active'
+            )}
+          >
+            <item.icon className="h-5 w-5 shrink-0" />
+            {!collapsed && <span>{item.label}</span>}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function Sidebar() {
+  const { sidebarOpen, setSidebarOpen } = useApp();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <aside
+        className={cn(
+          'fixed left-0 top-0 z-40 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 hidden lg:block',
+          sidebarOpen ? 'w-60' : 'w-16'
+        )}
+      >
+        <NavContent collapsed={!sidebarOpen} />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute top-4 -right-3 h-6 w-6 rounded-full border bg-background shadow-sm hidden lg:flex"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+        >
+          <ChevronLeft className={cn('h-3 w-3 transition-transform', !sidebarOpen && 'rotate-180')} />
+        </Button>
+      </aside>
+
+      {/* Mobile Sidebar */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetTrigger asChild>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="fixed left-4 top-4 z-50 lg:hidden"
           >
-            <ChevronLeft className={cn('h-4 w-4 transition-transform', !sidebarOpen && 'rotate-180')} />
+            <Menu className="h-5 w-5" />
           </Button>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1 p-3">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              to={item.href}
-              className={cn(
-                'sidebar-link',
-                isActive(item.href) && 'sidebar-link-active'
-              )}
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {sidebarOpen && <span>{item.label}</span>}
-            </Link>
-          ))}
-        </nav>
-
-        {/* Bottom Navigation */}
-        <div className="border-t border-sidebar-border p-3">
-          {bottomNavItems.map((item) => (
-            <Link
-              key={item.href}
-              to={item.href}
-              className={cn(
-                'sidebar-link',
-                isActive(item.href) && 'sidebar-link-active'
-              )}
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {sidebarOpen && <span>{item.label}</span>}
-            </Link>
-          ))}
-        </div>
-      </div>
-    </aside>
+        </SheetTrigger>
+        <SheetContent side="left" className="p-0 w-60">
+          <NavContent collapsed={false} onNavigate={() => setMobileOpen(false)} />
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }

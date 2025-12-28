@@ -6,7 +6,8 @@
 
 @layer base {
   :root {
-    --background: 0 0% 98%;
+    /* Neutral slate base with warm amber accent */
+    --background: 210 11% 98%;
     --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
@@ -15,37 +16,37 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 168 76% 32%;
+    --primary: 25 95% 53%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 14% 96%;
     --secondary-foreground: 222 47% 11%;
 
     --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    --muted-foreground: 215 16% 47%;
 
-    --accent: 168 76% 95%;
-    --accent-foreground: 168 76% 32%;
+    --accent: 25 95% 95%;
+    --accent-foreground: 25 95% 40%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 220 13% 91%;
     --input: 220 13% 91%;
-    --ring: 168 76% 32%;
+    --ring: 25 95% 53%;
 
     --radius: 0.5rem;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 220 9% 46%;
-    --sidebar-primary: 168 76% 32%;
+    --sidebar-foreground: 215 16% 47%;
+    --sidebar-primary: 25 95% 53%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 168 76% 95%;
-    --sidebar-accent-foreground: 168 76% 32%;
+    --sidebar-accent: 25 95% 95%;
+    --sidebar-accent-foreground: 25 95% 40%;
     --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 168 76% 32%;
+    --sidebar-ring: 25 95% 53%;
 
-    /* Custom tokens */
+    /* Status colors */
     --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
@@ -54,7 +55,7 @@
     --info-foreground: 0 0% 100%;
 
     /* Urgency badges */
-    --urgency-high: 0 84% 60%;
+    --urgency-high: 0 72% 51%;
     --urgency-medium: 38 92% 50%;
     --urgency-low: 142 71% 45%;
 
@@ -62,11 +63,6 @@
     --surface-1: 0 0% 100%;
     --surface-2: 220 14% 98%;
     --surface-3: 220 14% 96%;
-
-    /* Shadows */
-    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.05);
-    --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.07), 0 2px 4px -2px hsl(0 0% 0% / 0.05);
-    --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.08), 0 4px 6px -4px hsl(0 0% 0% / 0.04);
   }
 
   .dark {
@@ -79,7 +75,7 @@
     --popover: 222 47% 8%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 168 76% 42%;
+    --primary: 25 95% 53%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 217 33% 17%;
@@ -88,24 +84,24 @@
     --muted: 217 33% 17%;
     --muted-foreground: 215 20% 65%;
 
-    --accent: 168 76% 15%;
-    --accent-foreground: 168 76% 70%;
+    --accent: 25 95% 15%;
+    --accent-foreground: 25 95% 70%;
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
 
     --border: 217 33% 17%;
     --input: 217 33% 17%;
-    --ring: 168 76% 42%;
+    --ring: 25 95% 53%;
 
     --sidebar-background: 222 47% 8%;
     --sidebar-foreground: 215 20% 65%;
-    --sidebar-primary: 168 76% 42%;
+    --sidebar-primary: 25 95% 53%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 168 76% 15%;
-    --sidebar-accent-foreground: 168 76% 70%;
+    --sidebar-accent: 25 95% 15%;
+    --sidebar-accent-foreground: 25 95% 70%;
     --sidebar-border: 217 33% 17%;
-    --sidebar-ring: 168 76% 42%;
+    --sidebar-ring: 25 95% 53%;
 
     --surface-1: 222 47% 8%;
     --surface-2: 222 47% 10%;
@@ -131,15 +127,15 @@
 
 @layer components {
   .card-elevated {
-    @apply bg-card border border-border rounded-lg shadow-sm transition-shadow hover:shadow-md;
+    @apply bg-card border border-border rounded-lg transition-shadow hover:shadow-md;
   }
 
   .stat-card {
-    @apply bg-card border border-border rounded-lg p-5 transition-all hover:border-primary/20;
+    @apply bg-card border border-border rounded-xl p-5 transition-all hover:border-primary/20 hover:shadow-sm;
   }
 
   .cluster-card {
-    @apply bg-card border border-border rounded-lg p-5 transition-all hover:shadow-md hover:border-primary/30;
+    @apply bg-card border border-border rounded-xl p-5 transition-all hover:shadow-md hover:border-primary/30;
   }
 
   .idea-card {
@@ -147,7 +143,7 @@
   }
 
   .kanban-card {
-    @apply bg-card border border-border rounded-lg p-4 cursor-grab active:cursor-grabbing transition-all hover:shadow-md;
+    @apply bg-card border border-border rounded-lg p-4 cursor-grab active:cursor-grabbing transition-all hover:shadow-md hover:border-primary/20;
   }
 
   .sidebar-link {
@@ -155,7 +151,7 @@
   }
 
   .sidebar-link-active {
-    @apply bg-accent text-accent-foreground;
+    @apply bg-accent text-accent-foreground font-semibold;
   }
 
   .nav-item {
@@ -163,11 +159,51 @@
   }
 
   .section-title {
-    @apply text-lg font-semibold text-foreground;
+    @apply text-lg font-semibold text-foreground tracking-tight;
   }
 
   .section-description {
     @apply text-sm text-muted-foreground;
+  }
+
+  .badge-urgency-high {
+    @apply bg-red-50 text-red-700 border-red-200;
+  }
+
+  .badge-urgency-medium {
+    @apply bg-amber-50 text-amber-700 border-amber-200;
+  }
+
+  .badge-urgency-low {
+    @apply bg-emerald-50 text-emerald-700 border-emerald-200;
+  }
+
+  .status-running {
+    @apply bg-blue-50 text-blue-700 border-blue-200;
+  }
+
+  .status-completed {
+    @apply bg-emerald-50 text-emerald-700 border-emerald-200;
+  }
+
+  .status-failed {
+    @apply bg-red-50 text-red-700 border-red-200;
+  }
+
+  .input-search {
+    @apply bg-muted/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30;
+  }
+
+  .page-header {
+    @apply mb-8;
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight text-foreground;
+  }
+
+  .page-description {
+    @apply text-muted-foreground mt-1;
   }
 }
 
@@ -208,5 +244,9 @@
 
   .animate-pulse-slow {
     animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .skeleton {
+    @apply bg-muted animate-pulse rounded;
   }
 }
