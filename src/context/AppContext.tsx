@@ -21,8 +21,8 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  // Auto-login with mock user for demo purposes
-  const [user, setUser] = useState<User | null>(mockUser);
+  // Start logged out - user logs in from landing page
+  const [user, setUser] = useState<User | null>(null);
   const [collections, setCollections] = useState<Collection[]>(mockCollections);
   const [analyses, setAnalyses] = useState<Analysis[]>(mockAnalyses);
   const [ideas, setIdeas] = useState<Idea[]>(mockIdeas);
