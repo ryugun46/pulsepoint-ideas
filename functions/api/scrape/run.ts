@@ -144,12 +144,12 @@ async function runScrapeJob(
     // Fetch posts (limit to stay within subrequest limits)
     const allPosts: any[] = [];
     let continuePages = true;
-    // CRITICAL: We batch inserts to minimize subrequests (Cloudflare limit = 50 total)
-    // With batching: 1 post insert + 1 comment insert + 1 problem insert + N clusters/ideas + other queries
-    // This should keep us well under the 50 subrequest limit
-    const MAX_POSTS = 20; // All posts in 1 batch insert
-    const MAX_POSTS_WITH_COMMENTS = 5; // Only 5 posts get comments
-    const MAX_COMMENTS_PER_POST = 4; // All comments in 1 batch insert
+    // CRITICAL: Individual inserts to Neon (tagged template literals required)
+    // Cloudflare Pages limit = 50 subrequests total
+    // Budget: ~10 posts + ~10 comments + ~10 problems + clusters/ideas + other queries = ~40-45 subrequests
+    const MAX_POSTS = 10; // Individual inserts
+    const MAX_POSTS_WITH_COMMENTS = 3; // Only 3 posts get comments
+    const MAX_COMMENTS_PER_POST = 3; // Up to 9 comment inserts
 
     while (continuePages && allPosts.length < MAX_POSTS) {
       console.log(`[SCRAPE ${runId}] Fetching posts, current count: ${allPosts.length}`);
@@ -168,42 +168,35 @@ async function runScrapeJob(
       const postsToInsert = posts.slice(0, MAX_POSTS - allPosts.length);
       
       if (postsToInsert.length > 0) {
-        try {
-          // Build values array for batch insert
-          const values = postsToInsert.map(post => sql`(
-            ${runId}, ${subreddit.id}, ${post.id},
-            to_timestamp(${post.created_utc}),
-            ${post.title}, ${post.selftext}, ${post.author},
-            ${post.permalink}, ${post.url}, ${post.score},
-            ${post.num_comments}, ${JSON.stringify(post)}::jsonb
-          )`);
+        // Insert posts one by one (Neon serverless requires tagged template literals)
+        for (const post of postsToInsert) {
+          try {
+            const dbPosts = await sql`
+              INSERT INTO reddit_posts (
+                run_id, subreddit_id, reddit_post_id, created_utc,
+                title, selftext, author, permalink, url, score, num_comments, raw
+              )
+              VALUES (
+                ${runId}, ${subreddit.id}, ${post.id},
+                to_timestamp(${post.created_utc}),
+                ${post.title}, ${post.selftext}, ${post.author},
+                ${post.permalink}, ${post.url}, ${post.score},
+                ${post.num_comments}, ${JSON.stringify(post)}::jsonb
+              )
+              ON CONFLICT (reddit_post_id) DO UPDATE
+              SET run_id = EXCLUDED.run_id
+              RETURNING id, reddit_post_id
+            `;
 
-          // Batch insert all posts in one query
-          const dbPosts = await sql`
-            INSERT INTO reddit_posts (
-              run_id, subreddit_id, reddit_post_id, created_utc,
-              title, selftext, author, permalink, url, score, num_comments, raw
-            )
-            VALUES ${sql(values)}
-            ON CONFLICT (reddit_post_id) DO UPDATE
-            SET run_id = EXCLUDED.run_id
-            RETURNING id, reddit_post_id
-          `;
-
-          // Map UUIDs back to posts
-          for (let i = 0; i < postsToInsert.length; i++) {
-            const post = postsToInsert[i];
-            const dbPost = dbPosts.find((p: any) => p.reddit_post_id === post.id);
-            if (dbPost) {
-              allPosts.push({ ...post, uuid: dbPost.id });
+            if (dbPosts.length > 0) {
+              allPosts.push({ ...post, uuid: dbPosts[0].id });
               stats.postsScraped++;
             }
+          } catch (error) {
+            console.error(`[SCRAPE ${runId}] Error inserting post ${post.id}:`, error);
           }
-
-          console.log(`[SCRAPE ${runId}] Batch inserted ${postsToInsert.length} posts`);
-        } catch (error) {
-          console.error(`[SCRAPE ${runId}] Error batch inserting posts:`, error);
         }
+        console.log(`[SCRAPE ${runId}] Inserted ${postsToInsert.length} posts`);
       }
 
       afterCursor = after || undefined;
@@ -253,31 +246,32 @@ async function runScrapeJob(
       }
     }
 
-    // Batch insert all comments in one query
+    // Insert comments one by one (Neon serverless requires tagged template literals)
     if (allComments.length > 0) {
-      try {
-        const values = allComments.map(comment => sql`(
-          ${runId}, ${subreddit.id}, ${comment.postUuid}, ${comment.id},
-          ${comment.postId}, ${comment.parent_id}, to_timestamp(${comment.created_utc}),
-          ${comment.author}, ${comment.body}, ${comment.score}, 
-          ${JSON.stringify(comment)}::jsonb
-        )`);
-
-        await sql`
-          INSERT INTO reddit_comments (
-            run_id, subreddit_id, post_uuid, reddit_comment_id,
-            reddit_post_id, parent_reddit_comment_id, created_utc,
-            author, body, score, raw
-          )
-          VALUES ${sql(values)}
-          ON CONFLICT (reddit_comment_id) DO NOTHING
-        `;
-        
-        stats.commentsScraped = allComments.length;
-        console.log(`[SCRAPE ${runId}] Batch inserted ${allComments.length} comments`);
-      } catch (error) {
-        console.error(`Error batch inserting comments:`, error);
+      let insertedComments = 0;
+      for (const comment of allComments) {
+        try {
+          await sql`
+            INSERT INTO reddit_comments (
+              run_id, subreddit_id, post_uuid, reddit_comment_id,
+              reddit_post_id, parent_reddit_comment_id, created_utc,
+              author, body, score, raw
+            )
+            VALUES (
+              ${runId}, ${subreddit.id}, ${comment.postUuid}, ${comment.id},
+              ${comment.postId}, ${comment.parent_id}, to_timestamp(${comment.created_utc}),
+              ${comment.author}, ${comment.body}, ${comment.score}, 
+              ${JSON.stringify(comment)}::jsonb
+            )
+            ON CONFLICT (reddit_comment_id) DO NOTHING
+          `;
+          insertedComments++;
+        } catch (error) {
+          console.error(`[SCRAPE ${runId}] Error inserting comment ${comment.id}:`, error);
+        }
       }
+      stats.commentsScraped = insertedComments;
+      console.log(`[SCRAPE ${runId}] Inserted ${insertedComments} comments`);
     }
 
     // AI Processing: Extract problems (heavily reduced to stay under 50 subrequest limit)
@@ -285,8 +279,8 @@ async function runScrapeJob(
 
     console.log(`[SCRAPE ${runId}] Starting AI problem extraction (limited to conserve subrequests)`);
     
-    // Extract from top 5 posts only
-    const postsToAnalyze = allPosts.slice(0, 5);
+    // Extract from top 3 posts only (each AI call = 1 subrequest to OpenRouter)
+    const postsToAnalyze = allPosts.slice(0, 3);
     for (const post of postsToAnalyze) {
       const text = `${post.title}\n\n${post.selftext}`.trim();
       if (text.length > 50) {
@@ -306,13 +300,13 @@ async function runScrapeJob(
       }
     }
 
-    // Extract from top 5 comments
+    // Extract from top 3 comments only (each AI call = 1 subrequest to OpenRouter)
     const comments = await sql`
       SELECT id, body
       FROM reddit_comments
       WHERE run_id = ${runId}
       ORDER BY score DESC
-      LIMIT 5
+      LIMIT 3
     `;
 
     for (const comment of comments) {
@@ -335,30 +329,31 @@ async function runScrapeJob(
 
     console.log(`[SCRAPE ${runId}] Extracted ${allProblems.length} problems total`);
 
-    // Limit total problem inserts to 15 max
-    const problemsToStore = allProblems.slice(0, 15);
+    // Limit total problem inserts to 10 max (each insert = 1 subrequest)
+    const problemsToStore = allProblems.slice(0, 10);
     console.log(`[SCRAPE ${runId}] Storing ${problemsToStore.length} problems in DB`);
 
-    // Batch insert all problem statements in one query
+    // Insert problem statements one by one (Neon serverless requires tagged template literals)
     if (problemsToStore.length > 0) {
-      try {
-        const values = problemsToStore.map(problem => sql`(
-          ${runId}, ${subreddit.id}, ${problem.sourceType}, 
-          ${problem.sourceUuid}, ${problem.statement}
-        )`);
-
-        await sql`
-          INSERT INTO problem_statements (
-            run_id, subreddit_id, source_type, source_uuid, statement
-          )
-          VALUES ${sql(values)}
-        `;
-        
-        stats.problemsExtracted = problemsToStore.length;
-        console.log(`[SCRAPE ${runId}] Batch inserted ${problemsToStore.length} problem statements`);
-      } catch (error) {
-        console.error(`Error batch inserting problem statements:`, error);
+      let insertedProblems = 0;
+      for (const problem of problemsToStore) {
+        try {
+          await sql`
+            INSERT INTO problem_statements (
+              run_id, subreddit_id, source_type, source_uuid, statement
+            )
+            VALUES (
+              ${runId}, ${subreddit.id}, ${problem.sourceType}, 
+              ${problem.sourceUuid}, ${problem.statement}
+            )
+          `;
+          insertedProblems++;
+        } catch (error) {
+          console.error(`[SCRAPE ${runId}] Error inserting problem statement:`, error);
+        }
       }
+      stats.problemsExtracted = insertedProblems;
+      console.log(`[SCRAPE ${runId}] Inserted ${insertedProblems} problem statements`);
     }
 
     // Cluster problems (limit to stay within subrequest limits)
