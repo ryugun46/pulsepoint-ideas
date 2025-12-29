@@ -8183,10 +8183,10 @@ async function runScrapeJob(runId, subreddit, windowDays, env22, sql) {
     }
     const allPosts = [];
     let continuePages = true;
-    const MAX_POSTS = 10;
-    const MAX_POSTS_WITH_COMMENTS = 3;
+    const MAX_POSTS = 5;
+    const MAX_POSTS_WITH_COMMENTS = 2;
     const MAX_COMMENTS_PER_POST = 3;
-    console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post`);
+    console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post (ALL will be AI analyzed)`);
     while (continuePages && allPosts.length < MAX_POSTS) {
       console.log(`[SCRAPE ${runId}] Fetching posts, current count: ${allPosts.length}`);
       const { posts, after } = await reddit.fetchPosts(
@@ -8294,12 +8294,10 @@ async function runScrapeJob(runId, subreddit, windowDays, env22, sql) {
       console.log(`[SCRAPE ${runId}] Inserted ${insertedComments} comments`);
     }
     const allProblems = [];
-    const MAX_POSTS_TO_ANALYZE = 3;
-    const MAX_COMMENTS_TO_ANALYZE = 3;
     const MAX_PROBLEMS_PER_SOURCE = 2;
     const MAX_PROBLEMS_TO_STORE = 8;
-    console.log(`[SCRAPE ${runId}] Starting AI problem extraction: ${MAX_POSTS_TO_ANALYZE} posts, ${MAX_COMMENTS_TO_ANALYZE} comments`);
-    const postsToAnalyze = allPosts.slice(0, MAX_POSTS_TO_ANALYZE);
+    console.log(`[SCRAPE ${runId}] Starting AI problem extraction: analyzing ALL ${allPosts.length} posts and ALL comments`);
+    const postsToAnalyze = allPosts;
     for (const post of postsToAnalyze) {
       const text = `${post.title}
 
@@ -8324,8 +8322,9 @@ ${post.selftext}`.trim();
       FROM reddit_comments
       WHERE run_id = ${runId}
       ORDER BY score DESC
-      LIMIT 3
+      LIMIT 6
     `;
+    console.log(`[SCRAPE ${runId}] Analyzing ${comments.length} comments with AI`);
     for (const comment of comments) {
       if (comment.body && comment.body.length > 50) {
         try {
