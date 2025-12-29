@@ -5,6 +5,57 @@ export interface OpenRouterConfig {
   model?: string;
 }
 
+// Valid severity levels
+const VALID_SEVERITIES = ['low', 'medium', 'high'] as const;
+type Severity = typeof VALID_SEVERITIES[number];
+
+/**
+ * Normalize severity values from AI responses.
+ * Handles variations like "medium-high", "medium high", "Medium", etc.
+ * Falls back to "medium" if the value is unrecognized.
+ */
+export function normalizeSeverity(value: string | undefined | null): Severity {
+  if (!value) {
+    console.warn('[OpenRouter] Missing severity value, defaulting to "medium"');
+    return 'medium';
+  }
+  
+  const normalized = value.toLowerCase().trim();
+  
+  // Direct match
+  if (VALID_SEVERITIES.includes(normalized as Severity)) {
+    return normalized as Severity;
+  }
+  
+  // Handle variations like "medium-high", "medium high", "high-medium"
+  if (normalized.includes('high') && normalized.includes('medium')) {
+    console.log(`[OpenRouter] Normalizing severity "${value}" to "high" (combined value)`);
+    return 'high';
+  }
+  if (normalized.includes('high') && normalized.includes('low')) {
+    console.log(`[OpenRouter] Normalizing severity "${value}" to "medium" (combined value)`);
+    return 'medium';
+  }
+  if (normalized.includes('medium') && normalized.includes('low')) {
+    console.log(`[OpenRouter] Normalizing severity "${value}" to "medium" (combined value)`);
+    return 'medium';
+  }
+  
+  // Handle single mentions
+  if (normalized.includes('high')) {
+    return 'high';
+  }
+  if (normalized.includes('medium') || normalized.includes('moderate')) {
+    return 'medium';
+  }
+  if (normalized.includes('low') || normalized.includes('minor')) {
+    return 'low';
+  }
+  
+  console.warn(`[OpenRouter] Unrecognized severity "${value}", defaulting to "medium"`);
+  return 'medium';
+}
+
 // Preferred models for cost/performance balance (in order of preference)
 const PREFERRED_MODELS = [
   'google/gemini-flash-1.5',
@@ -236,7 +287,17 @@ Example format:
       
       const cleaned = response.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
       const clusters = JSON.parse(cleaned);
-      return Array.isArray(clusters) ? clusters : [];
+      
+      if (!Array.isArray(clusters)) {
+        return [];
+      }
+      
+      // Normalize severity values to handle AI variations like "medium-high"
+      return clusters.map(cluster => ({
+        ...cluster,
+        severity: normalizeSeverity(cluster.severity),
+        frequency: typeof cluster.frequency === 'number' ? cluster.frequency : 1,
+      }));
     } catch (error) {
       console.error('Error clustering problems:', error);
       return [];

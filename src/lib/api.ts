@@ -19,6 +19,7 @@ export interface ScrapeRun {
   errorMessage?: string;
   stats?: {
     postsScraped: number;
+    postsWithComments?: number; // How many posts had comments fetched (max 3)
     commentsScraped: number;
     problemsExtracted: number;
     clustersCreated: number;
@@ -108,6 +109,7 @@ class ApiClient {
     message?: string;
     stats?: {
       postsScraped: number;
+      postsWithComments?: number;
       commentsScraped: number;
       problemsExtracted: number;
       clustersCreated: number;

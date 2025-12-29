@@ -3,7 +3,7 @@
 import { neon } from '@neondatabase/serverless';
 import type { AppContext } from '../../_middleware';
 import { RedditClient } from '../../lib/reddit';
-import { OpenRouterClient } from '../../lib/openrouter';
+import { OpenRouterClient, normalizeSeverity } from '../../lib/openrouter';
 
 interface ScrapeRequest {
   subredditId: string;
@@ -106,8 +106,10 @@ async function runScrapeJob(
 ): Promise<{ status: 'completed' | 'failed'; stats: any; error?: string }> {
   console.log(`[SCRAPE JOB ${runId}] Starting for r/${subreddit.name}, window: ${windowDays} days`);
   
+  // Extended stats for better visibility into what was scraped
   const stats = {
     postsScraped: 0,
+    postsWithComments: 0,  // How many posts had comments fetched
     commentsScraped: 0,
     problemsExtracted: 0,
     clustersCreated: 0,
@@ -145,24 +147,56 @@ async function runScrapeJob(
     const cutoffTimestamp = Math.floor(cutoffDate.getTime() / 1000);
     console.log(`[SCRAPE JOB ${runId}] Cutoff: ${cutoffDate.toISOString()} (${cutoffTimestamp})`);
 
-    // Get checkpoint
-    const checkpoints = await sql`
-      SELECT last_after_cursor
-      FROM scrape_checkpoints
-      WHERE subreddit_id = ${subreddit.id} AND window_days = ${windowDays}
-    `;
+    // For 24-hour scrapes, always start fresh (no checkpoint)
+    // Reddit's /new endpoint returns newest posts first, so using an old cursor
+    // from a previous run would skip all the new posts we want to capture.
+    // For 7-day scrapes, we can use checkpoints for incremental updates.
+    let afterCursor: string | undefined = undefined;
     
-    let afterCursor = checkpoints[0]?.last_after_cursor || undefined;
+    if (windowDays === 7) {
+      // Get checkpoint only for 7-day window
+      const checkpoints = await sql`
+        SELECT last_after_cursor
+        FROM scrape_checkpoints
+        WHERE subreddit_id = ${subreddit.id} AND window_days = ${windowDays}
+      `;
+      afterCursor = checkpoints[0]?.last_after_cursor || undefined;
+      if (afterCursor) {
+        console.log(`[SCRAPE JOB ${runId}] Using checkpoint cursor for 7-day window`);
+      }
+    } else {
+      console.log(`[SCRAPE JOB ${runId}] 24-hour window: starting fresh (no checkpoint)`);
+      // Clear any stale checkpoint for 24h window
+      await sql`
+        DELETE FROM scrape_checkpoints 
+        WHERE subreddit_id = ${subreddit.id} AND window_days = ${windowDays}
+      `;
+    }
 
     // Fetch posts (limit to stay within subrequest limits)
     const allPosts: any[] = [];
     let continuePages = true;
-    // CRITICAL: Individual inserts to Neon (tagged template literals required)
-    // Cloudflare Pages limit = 50 subrequests total
-    // Budget: ~10 posts + ~10 comments + ~10 problems + clusters/ideas + other queries = ~40-45 subrequests
-    const MAX_POSTS = 10; // Individual inserts
-    const MAX_POSTS_WITH_COMMENTS = 3; // Only 3 posts get comments
-    const MAX_COMMENTS_PER_POST = 3; // Up to 9 comment inserts
+    
+    // ============================================================
+    // SCRAPER LIMITS DOCUMENTATION
+    // ============================================================
+    // CRITICAL: Cloudflare Pages has a limit of 50 subrequests total per request.
+    // Each DB insert = 1 subrequest. Each Reddit API call = 1 subrequest.
+    // 
+    // Current budget breakdown:
+    // - Posts:    ~10 inserts (MAX_POSTS)
+    // - Comments: ~9 inserts (3 posts × 3 comments each)
+    // - Problems: ~10 inserts
+    // - Clusters: ~5 inserts
+    // - Ideas:    ~5 inserts  
+    // - Other:    ~5 queries (checkpoints, run updates, etc.)
+    // Total:      ~44 subrequests (under 50 limit)
+    // ============================================================
+    const MAX_POSTS = 10;              // Maximum posts to scrape
+    const MAX_POSTS_WITH_COMMENTS = 3; // Only top 3 posts get their comments fetched
+    const MAX_COMMENTS_PER_POST = 3;   // Up to 3 comments per post = 9 comments max
+    
+    console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post`);
 
     while (continuePages && allPosts.length < MAX_POSTS) {
       console.log(`[SCRAPE ${runId}] Fetching posts, current count: ${allPosts.length}`);
@@ -234,10 +268,14 @@ async function runScrapeJob(
     }
 
     // Fetch comments only for top posts (to stay within limits)
-    console.log(`[SCRAPE ${runId}] Fetching comments for top ${MAX_POSTS_WITH_COMMENTS} posts`);
+    // Note: Only MAX_POSTS_WITH_COMMENTS posts get their comments fetched,
+    // and each post gets up to MAX_COMMENTS_PER_POST comments.
+    console.log(`[SCRAPE ${runId}] Fetching comments for top ${MAX_POSTS_WITH_COMMENTS} of ${allPosts.length} posts`);
     const topPosts = allPosts.slice(0, MAX_POSTS_WITH_COMMENTS);
     
     const allComments: any[] = [];
+    let postsWithCommentsCount = 0;
+    
     for (const post of topPosts) {
       try {
         const comments = await reddit.fetchComments(subreddit.name, post.id, 1, 10);
@@ -245,12 +283,16 @@ async function runScrapeJob(
         // Only take top N comments per post (to minimize subrequests)
         const topComments = comments.slice(0, MAX_COMMENTS_PER_POST);
         
+        if (topComments.length > 0) {
+          postsWithCommentsCount++;
+        }
+        
         // Add to batch with post UUID
         for (const comment of topComments) {
           allComments.push({ ...comment, postUuid: post.uuid, postId: post.id });
         }
 
-        console.log(`[SCRAPE ${runId}] Fetched ${topComments.length} comments for post ${post.id}`);
+        console.log(`[SCRAPE ${runId}] Fetched ${topComments.length}/${comments.length} comments for post ${post.id}`);
         
         // Small delay between comment fetches
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -258,6 +300,9 @@ async function runScrapeJob(
         console.error(`Error fetching comments for post ${post.id}:`, error);
       }
     }
+    
+    stats.postsWithComments = postsWithCommentsCount;
+    console.log(`[SCRAPE ${runId}] Comment summary: ${postsWithCommentsCount} posts with comments, ${allComments.length} total comments to insert`);
 
     // Insert comments one by one (Neon serverless requires tagged template literals)
     if (allComments.length > 0) {
@@ -380,11 +425,14 @@ async function runScrapeJob(
 
         for (const cluster of clusters) {
           try {
-            // Store cluster
+            // Store cluster with normalized severity
             const evidence = cluster.memberIndices
               .slice(0, 5)
               .map(i => allProblems[i]?.statement)
               .filter(Boolean);
+            
+            // Ensure severity is normalized (handles AI variations like "medium-high")
+            const clusterSeverity = normalizeSeverity(cluster.severity);
 
             const dbClusters = await sql`
               INSERT INTO problem_clusters (
@@ -392,7 +440,7 @@ async function runScrapeJob(
               )
               VALUES (
                 ${runId}, ${subreddit.id}, ${cluster.title}, ${cluster.summary},
-                ${cluster.frequency}, ${cluster.severity}, ${JSON.stringify(evidence)}::jsonb
+                ${cluster.frequency}, ${clusterSeverity}, ${JSON.stringify(evidence)}::jsonb
               )
               RETURNING id
             `;
@@ -405,13 +453,35 @@ async function runScrapeJob(
               const idea = await ai.generateIdea(cluster);
               
               if (idea) {
+                // ============================================================
+                // IDEA SCORE CALCULATION
+                // ============================================================
+                // Score = frequency × severity_multiplier
+                // 
+                // Severity multipliers:
+                //   - high:   3x (urgent, critical problems)
+                //   - medium: 2x (moderate impact problems)
+                //   - low:    1x (minor inconveniences)
+                //
+                // Example: frequency=5, severity="high" → score = 5 × 3 = 15
+                // 
+                // Higher scores indicate more promising opportunities:
+                //   - High frequency = many people have this problem
+                //   - High severity = the problem causes significant pain
+                // ============================================================
+                const normalizedSeverity = normalizeSeverity(cluster.severity);
+                const severityMultiplier = normalizedSeverity === 'high' ? 3 : normalizedSeverity === 'medium' ? 2 : 1;
+                const score = cluster.frequency * severityMultiplier;
+                
+                console.log(`[SCRAPE ${runId}] Idea "${idea.title}": frequency=${cluster.frequency}, severity=${normalizedSeverity}, score=${score}`);
+                
                 await sql`
                   INSERT INTO generated_ideas (
                     run_id, subreddit_id, cluster_id, title, idea, score
                   )
                   VALUES (
                     ${runId}, ${subreddit.id}, ${clusterId}, ${idea.title},
-                    ${JSON.stringify(idea)}::jsonb, ${cluster.frequency * (cluster.severity === 'high' ? 3 : cluster.severity === 'medium' ? 2 : 1)}
+                    ${JSON.stringify(idea)}::jsonb, ${score}
                   )
                 `;
                 stats.ideasGenerated++;
