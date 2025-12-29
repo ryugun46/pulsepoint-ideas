@@ -8245,8 +8245,12 @@ async function runScrapeJob(runId, subreddit, windowDays, env22, sql) {
           updated_at = NOW()
       `;
     }
-    console.log(`[SCRAPE ${runId}] Fetching comments for top ${MAX_POSTS_WITH_COMMENTS} of ${allPosts.length} posts`);
-    const topPosts = allPosts.slice(0, MAX_POSTS_WITH_COMMENTS);
+    const postsWithMostComments = [...allPosts].filter((p2) => p2.num_comments > 0).sort((a2, b2) => b2.num_comments - a2.num_comments).slice(0, MAX_POSTS_WITH_COMMENTS);
+    console.log(`[SCRAPE ${runId}] Fetching comments for ${postsWithMostComments.length} posts with most comments (of ${allPosts.length} total)`);
+    if (postsWithMostComments.length > 0) {
+      console.log(`[SCRAPE ${runId}] Selected posts: ${postsWithMostComments.map((p2) => `${p2.id}(${p2.num_comments} comments)`).join(", ")}`);
+    }
+    const topPosts = postsWithMostComments;
     const allComments = [];
     let postsWithCommentsCount = 0;
     for (const post of topPosts) {

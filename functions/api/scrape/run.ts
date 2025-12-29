@@ -274,11 +274,20 @@ async function runScrapeJob(
       `;
     }
 
-    // Fetch comments only for top posts (to stay within limits)
+    // Fetch comments only for posts that actually have comments
+    // Sort by num_comments descending to get posts with most discussion
     // Note: Only MAX_POSTS_WITH_COMMENTS posts get their comments fetched,
     // and each post gets up to MAX_COMMENTS_PER_POST comments.
-    console.log(`[SCRAPE ${runId}] Fetching comments for top ${MAX_POSTS_WITH_COMMENTS} of ${allPosts.length} posts`);
-    const topPosts = allPosts.slice(0, MAX_POSTS_WITH_COMMENTS);
+    const postsWithMostComments = [...allPosts]
+      .filter(p => p.num_comments > 0)  // Only posts that have comments
+      .sort((a, b) => b.num_comments - a.num_comments)  // Most comments first
+      .slice(0, MAX_POSTS_WITH_COMMENTS);
+    
+    console.log(`[SCRAPE ${runId}] Fetching comments for ${postsWithMostComments.length} posts with most comments (of ${allPosts.length} total)`);
+    if (postsWithMostComments.length > 0) {
+      console.log(`[SCRAPE ${runId}] Selected posts: ${postsWithMostComments.map(p => `${p.id}(${p.num_comments} comments)`).join(', ')}`);
+    }
+    const topPosts = postsWithMostComments;
     
     const allComments: any[] = [];
     let postsWithCommentsCount = 0;
