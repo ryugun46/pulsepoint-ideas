@@ -180,21 +180,25 @@ async function runScrapeJob(
     // ============================================================
     // SCRAPER LIMITS DOCUMENTATION
     // ============================================================
-    // CRITICAL: Cloudflare Pages has a limit of 50 subrequests total per request.
-    // Each DB insert = 1 subrequest. Each Reddit API call = 1 subrequest.
+    // Cloudflare Pages has subrequest limits, but we prioritize comprehensive data.
+    // Each DB insert = 1 subrequest. Each Reddit/AI API call = 1 subrequest.
     // 
-    // Current budget breakdown:
-    // - Posts:    ~10 inserts (MAX_POSTS)
-    // - Comments: ~9 inserts (3 posts × 3 comments each)
-    // - Problems: ~10 inserts
-    // - Clusters: ~5 inserts
-    // - Ideas:    ~5 inserts  
-    // - Other:    ~5 queries (checkpoints, run updates, etc.)
-    // Total:      ~44 subrequests (under 50 limit)
+    // Current budget breakdown (optimized for comprehensive analysis):
+    // - Posts:    ~25 inserts (MAX_POSTS)
+    // - Comments: ~50 inserts (10 posts × 5 comments each)
+    // - Problems: ~15 inserts
+    // - Clusters: ~8 inserts
+    // - Ideas:    ~8 inserts  
+    // - Other:    ~10 queries (checkpoints, run updates, AI calls, etc.)
+    // 
+    // Note: This may approach or exceed free tier limits on Cloudflare Pages.
+    // If you encounter errors, consider:
+    // 1. Running multiple smaller scrapes
+    // 2. Upgrading to Cloudflare Workers Paid plan (no subrequest limits)
     // ============================================================
-    const MAX_POSTS = 10;              // Maximum posts to scrape
-    const MAX_POSTS_WITH_COMMENTS = 3; // Only top 3 posts get their comments fetched
-    const MAX_COMMENTS_PER_POST = 3;   // Up to 3 comments per post = 9 comments max
+    const MAX_POSTS = 25;              // Maximum posts to scrape (increased from 10)
+    const MAX_POSTS_WITH_COMMENTS = 10; // Top 10 posts get their comments fetched (increased from 3)
+    const MAX_COMMENTS_PER_POST = 5;   // Up to 5 comments per post = 50 comments max (increased from 3)
     
     console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post`);
 
@@ -332,20 +336,28 @@ async function runScrapeJob(
       console.log(`[SCRAPE ${runId}] Inserted ${insertedComments} comments`);
     }
 
-    // AI Processing: Extract problems (heavily reduced to stay under 50 subrequest limit)
+    // AI Processing: Extract problems from posts and comments
+    // More content analyzed = more comprehensive problem identification
     const allProblems: Array<{ statement: string; sourceType: string; sourceUuid: string }> = [];
-
-    console.log(`[SCRAPE ${runId}] Starting AI problem extraction (limited to conserve subrequests)`);
     
-    // Extract from top 3 posts only (each AI call = 1 subrequest to OpenRouter)
-    const postsToAnalyze = allPosts.slice(0, 3);
+    // ============================================================
+    // AI ANALYSIS LIMITS (increased for comprehensive analysis)
+    // ============================================================
+    const MAX_POSTS_TO_ANALYZE = 8;     // Analyze top 8 posts for problems (increased from 3)
+    const MAX_COMMENTS_TO_ANALYZE = 8;  // Analyze top 8 comments for problems (increased from 3)
+    const MAX_PROBLEMS_PER_SOURCE = 3;  // Extract up to 3 problems per post/comment (increased from 2)
+    const MAX_PROBLEMS_TO_STORE = 20;   // Store up to 20 problems (increased from 10)
+
+    console.log(`[SCRAPE ${runId}] Starting AI problem extraction: ${MAX_POSTS_TO_ANALYZE} posts, ${MAX_COMMENTS_TO_ANALYZE} comments`);
+    
+    // Extract problems from top posts (each AI call = 1 subrequest to OpenRouter)
+    const postsToAnalyze = allPosts.slice(0, MAX_POSTS_TO_ANALYZE);
     for (const post of postsToAnalyze) {
       const text = `${post.title}\n\n${post.selftext}`.trim();
       if (text.length > 50) {
         try {
           const problems = await ai.extractProblems(text, `post in r/${subreddit.name}`);
-          // Limit to 2 problems per post to reduce inserts
-          for (const problem of problems.slice(0, 2)) {
+          for (const problem of problems.slice(0, MAX_PROBLEMS_PER_SOURCE)) {
             allProblems.push({
               statement: problem,
               sourceType: 'post',
@@ -358,21 +370,20 @@ async function runScrapeJob(
       }
     }
 
-    // Extract from top 3 comments only (each AI call = 1 subrequest to OpenRouter)
+    // Extract problems from top comments (each AI call = 1 subrequest to OpenRouter)
     const comments = await sql`
       SELECT id, body
       FROM reddit_comments
       WHERE run_id = ${runId}
       ORDER BY score DESC
-      LIMIT 3
+      LIMIT ${MAX_COMMENTS_TO_ANALYZE}
     `;
 
     for (const comment of comments) {
       if (comment.body && comment.body.length > 50) {
         try {
           const problems = await ai.extractProblems(comment.body, `comment in r/${subreddit.name}`);
-          // Limit to 2 problems per comment
-          for (const problem of problems.slice(0, 2)) {
+          for (const problem of problems.slice(0, MAX_PROBLEMS_PER_SOURCE)) {
             allProblems.push({
               statement: problem,
               sourceType: 'comment',
@@ -387,8 +398,8 @@ async function runScrapeJob(
 
     console.log(`[SCRAPE ${runId}] Extracted ${allProblems.length} problems total`);
 
-    // Limit total problem inserts to 10 max (each insert = 1 subrequest)
-    const problemsToStore = allProblems.slice(0, 10);
+    // Store the most significant problems
+    const problemsToStore = allProblems.slice(0, MAX_PROBLEMS_TO_STORE);
     console.log(`[SCRAPE ${runId}] Storing ${problemsToStore.length} problems in DB`);
 
     // Insert problem statements one by one (Neon serverless requires tagged template literals)
