@@ -7722,8 +7722,13 @@ var RedditClient = class {
       }
     }
   }
-  async fetchPosts(subreddit, cutoffTimestamp, afterCursor, limit = 100) {
-    let url = `https://www.reddit.com/r/${subreddit}/new.json?limit=${limit}`;
+  async fetchPosts(subreddit, cutoffTimestamp, afterCursor, limit = 100, sortBy = "new", timeFilter = "week") {
+    let url;
+    if (sortBy === "top") {
+      url = `https://www.reddit.com/r/${subreddit}/top.json?limit=${limit}&t=${timeFilter}`;
+    } else {
+      url = `https://www.reddit.com/r/${subreddit}/new.json?limit=${limit}`;
+    }
     if (afterCursor) {
       url += `&after=${afterCursor}`;
     }
@@ -8067,7 +8072,8 @@ var onRequestPost = /* @__PURE__ */ __name2(async (context22) => {
   try {
     console.log("[SCRAPE] Received scrape request");
     const body = await context22.request.json();
-    console.log("[SCRAPE] Request params:", { subredditId: body.subredditId, windowDays: body.windowDays });
+    const sortBy = body.sortBy || "new";
+    console.log("[SCRAPE] Request params:", { subredditId: body.subredditId, windowDays: body.windowDays, sortBy });
     if (!body.subredditId || !body.windowDays) {
       return new Response(JSON.stringify({
         error: "subredditId and windowDays are required"
@@ -8108,7 +8114,7 @@ var onRequestPost = /* @__PURE__ */ __name2(async (context22) => {
     const runId = runs[0].id;
     console.log("[SCRAPE] Created run with ID:", runId);
     console.log("[SCRAPE] Starting scrape job...");
-    const result = await runScrapeJob(runId, subreddit, body.windowDays, env22, sql);
+    const result = await runScrapeJob(runId, subreddit, body.windowDays, sortBy, env22, sql);
     console.log("[SCRAPE] Job completed, returning result");
     return new Response(JSON.stringify({
       id: runId,
@@ -8131,8 +8137,8 @@ var onRequestPost = /* @__PURE__ */ __name2(async (context22) => {
     });
   }
 }, "onRequestPost");
-async function runScrapeJob(runId, subreddit, windowDays, env22, sql) {
-  console.log(`[SCRAPE JOB ${runId}] Starting for r/${subreddit.name}, window: ${windowDays} days`);
+async function runScrapeJob(runId, subreddit, windowDays, sortBy, env22, sql) {
+  console.log(`[SCRAPE JOB ${runId}] Starting for r/${subreddit.name}, window: ${windowDays} days, sort: ${sortBy}`);
   const stats = {
     postsScraped: 0,
     postsWithComments: 0,
@@ -8187,12 +8193,17 @@ async function runScrapeJob(runId, subreddit, windowDays, env22, sql) {
     const MAX_POSTS_WITH_COMMENTS = 2;
     const MAX_COMMENTS_PER_POST = 3;
     console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post (ALL will be AI analyzed)`);
+    const timeFilter = windowDays === 1 ? "day" : "week";
     while (continuePages && allPosts.length < MAX_POSTS) {
-      console.log(`[SCRAPE ${runId}] Fetching posts, current count: ${allPosts.length}`);
+      console.log(`[SCRAPE ${runId}] Fetching posts (sort: ${sortBy}), current count: ${allPosts.length}`);
       const { posts, after } = await reddit.fetchPosts(
         subreddit.name,
         cutoffTimestamp,
-        afterCursor
+        afterCursor,
+        100,
+        // limit per request
+        sortBy,
+        timeFilter
       );
       if (posts.length === 0) {
         continuePages = false;

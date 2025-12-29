@@ -8,6 +8,7 @@ import { OpenRouterClient, normalizeSeverity } from '../../lib/openrouter';
 interface ScrapeRequest {
   subredditId: string;
   windowDays: number; // 1 or 7
+  sortBy?: 'new' | 'top'; // 'new' for recent posts, 'top' for top posts
 }
 
 export const onRequestPost = async (context: any) => {
@@ -18,7 +19,8 @@ export const onRequestPost = async (context: any) => {
     console.log('[SCRAPE] Received scrape request');
     const body = await context.request.json() as ScrapeRequest;
     
-    console.log('[SCRAPE] Request params:', { subredditId: body.subredditId, windowDays: body.windowDays });
+    const sortBy = body.sortBy || 'new';
+    console.log('[SCRAPE] Request params:', { subredditId: body.subredditId, windowDays: body.windowDays, sortBy });
     
     if (!body.subredditId || !body.windowDays) {
       return new Response(JSON.stringify({
@@ -71,7 +73,7 @@ export const onRequestPost = async (context: any) => {
 
     // Run the scrape job synchronously (wait for completion)
     console.log('[SCRAPE] Starting scrape job...');
-    const result = await runScrapeJob(runId, subreddit, body.windowDays, env, sql);
+    const result = await runScrapeJob(runId, subreddit, body.windowDays, sortBy, env, sql);
 
     console.log('[SCRAPE] Job completed, returning result');
     return new Response(JSON.stringify({
@@ -101,10 +103,11 @@ async function runScrapeJob(
   runId: string,
   subreddit: { id: string; name: string },
   windowDays: number,
+  sortBy: 'new' | 'top',
   env: any,
   sql: any
 ): Promise<{ status: 'completed' | 'failed'; stats: any; error?: string }> {
-  console.log(`[SCRAPE JOB ${runId}] Starting for r/${subreddit.name}, window: ${windowDays} days`);
+  console.log(`[SCRAPE JOB ${runId}] Starting for r/${subreddit.name}, window: ${windowDays} days, sort: ${sortBy}`);
   
   // Extended stats for better visibility into what was scraped
   const stats = {
@@ -205,12 +208,18 @@ async function runScrapeJob(
     
     console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post (ALL will be AI analyzed)`);
 
+    // Determine time filter for Reddit's top endpoint (day for 24h, week for 7d)
+    const timeFilter = windowDays === 1 ? 'day' : 'week';
+    
     while (continuePages && allPosts.length < MAX_POSTS) {
-      console.log(`[SCRAPE ${runId}] Fetching posts, current count: ${allPosts.length}`);
+      console.log(`[SCRAPE ${runId}] Fetching posts (sort: ${sortBy}), current count: ${allPosts.length}`);
       const { posts, after } = await reddit.fetchPosts(
         subreddit.name,
         cutoffTimestamp,
-        afterCursor
+        afterCursor,
+        100, // limit per request
+        sortBy,
+        timeFilter
       );
 
       if (posts.length === 0) {

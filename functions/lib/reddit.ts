@@ -116,9 +116,20 @@ export class RedditClient {
     subreddit: string,
     cutoffTimestamp: number,
     afterCursor?: string,
-    limit = 100
+    limit = 100,
+    sortBy: 'new' | 'top' = 'new',
+    timeFilter: 'day' | 'week' = 'week'
   ): Promise<{ posts: RedditPost[]; after: string | null }> {
-    let url = `https://www.reddit.com/r/${subreddit}/new.json?limit=${limit}`;
+    // Build URL based on sort type
+    // - /new.json: most recent posts first
+    // - /top.json?t=day|week: top posts by score
+    let url: string;
+    if (sortBy === 'top') {
+      url = `https://www.reddit.com/r/${subreddit}/top.json?limit=${limit}&t=${timeFilter}`;
+    } else {
+      url = `https://www.reddit.com/r/${subreddit}/new.json?limit=${limit}`;
+    }
+    
     if (afterCursor) {
       url += `&after=${afterCursor}`;
     }

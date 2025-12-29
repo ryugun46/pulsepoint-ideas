@@ -103,7 +103,7 @@ class ApiClient {
   }
 
   // Scraping
-  async runScrape(subredditId: string, windowDays: number): Promise<{ 
+  async runScrape(subredditId: string, windowDays: number, sortBy: 'new' | 'top' = 'new'): Promise<{ 
     id: string; 
     status: string;
     message?: string;
@@ -119,7 +119,7 @@ class ApiClient {
   }> {
     return this.request('/api/scrape/run', {
       method: 'POST',
-      body: JSON.stringify({ subredditId, windowDays }),
+      body: JSON.stringify({ subredditId, windowDays, sortBy }),
     });
   }
 

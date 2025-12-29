@@ -13,7 +13,9 @@ import {
   Clock,
   Filter,
   AlertCircle,
-  XCircle
+  XCircle,
+  TrendingUp,
+  ArrowUpDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -54,6 +56,7 @@ export default function NewAnalysis() {
   const { collections } = useApp();
   const [selectedCollection, setSelectedCollection] = useState<string>('');
   const [timeframe, setTimeframe] = useState('7d');
+  const [sortBy, setSortBy] = useState<'new' | 'top'>('new');
   const [includeComments, setIncludeComments] = useState(true);
   const [commentsDepth, setCommentsDepth] = useState([3]);
   const [isRunning, setIsRunning] = useState(false);
@@ -167,7 +170,7 @@ export default function NewAnalysis() {
         }, stepDelay * 4);
 
         // Call the actual API
-        const result = await api.runScrape(subreddit.id, windowDays);
+        const result = await api.runScrape(subreddit.id, windowDays, sortBy);
         lastRunId = result.id;
 
         // Complete remaining steps
@@ -312,6 +315,35 @@ export default function NewAnalysis() {
                         )}
                       >
                         {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sort By Filter */}
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <ArrowUpDown className="h-4 w-4" />
+                    Sort Posts By
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'new', label: 'Recent Posts', icon: Clock, description: 'Most recent first' },
+                      { value: 'top', label: 'Top Posts', icon: TrendingUp, description: 'Highest upvoted' },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => setSortBy(option.value as 'new' | 'top')}
+                        className={cn(
+                          'flex flex-col items-center justify-center p-3 rounded-lg border text-sm font-medium transition-all gap-1',
+                          sortBy === option.value
+                            ? 'border-primary bg-primary/5 text-primary'
+                            : 'border-border hover:border-primary/50'
+                        )}
+                      >
+                        <option.icon className="h-4 w-4" />
+                        <span>{option.label}</span>
+                        <span className="text-xs font-normal text-muted-foreground">{option.description}</span>
                       </button>
                     ))}
                   </div>
@@ -488,22 +520,93 @@ export default function NewAnalysis() {
                   </div>
                 )}
 
+                {/* Live Progress Display */}
+                {overallStatus === 'running' && scrapeResults.length > 0 && (
+                  <div className="mt-4 p-4 rounded-lg bg-muted/30 border border-border">
+                    <p className="font-medium mb-3 flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Processing Subreddits...
+                    </p>
+                    <div className="space-y-2">
+                      {scrapeResults.map((result, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm p-2 rounded bg-background/50">
+                          <div className="flex items-center gap-2">
+                            {result.status === 'running' && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
+                            {result.status === 'completed' && <Check className="h-3 w-3 text-success" />}
+                            {result.status === 'failed' && <XCircle className="h-3 w-3 text-destructive" />}
+                            {result.status === 'pending' && <Clock className="h-3 w-3 text-muted-foreground" />}
+                            <span className={cn(
+                              "font-medium",
+                              result.status === 'running' && "text-primary",
+                              result.status === 'completed' && "text-success",
+                              result.status === 'failed' && "text-destructive"
+                            )}>
+                              r/{result.subredditName}
+                            </span>
+                          </div>
+                          <div className="text-muted-foreground">
+                            {result.stats ? (
+                              <span className="flex items-center gap-3">
+                                <span>{result.stats.postsScraped} posts</span>
+                                <span>{result.stats.commentsScraped} comments</span>
+                                <span>{result.stats.ideasGenerated} ideas</span>
+                              </span>
+                            ) : result.status === 'running' ? (
+                              <span>Scraping...</span>
+                            ) : result.status === 'pending' ? (
+                              <span>Waiting</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Results Summary */}
                 {overallStatus === 'completed' && scrapeResults.length > 0 && (
                   <div className="mt-4 p-4 rounded-lg bg-success/5 border border-success/30">
-                    <p className="font-medium text-success mb-2">Analysis Summary</p>
-                    {scrapeResults.map((result, idx) => (
-                      <div key={idx} className="text-sm text-muted-foreground">
-                        <span className="font-medium">r/{result.subredditName}:</span>{' '}
-                        {result.stats ? (
-                          <span>
-                            {result.stats.postsScraped} posts, {result.stats.ideasGenerated} ideas
+                    <p className="font-medium text-success mb-3">Analysis Complete!</p>
+                    <div className="space-y-2">
+                      {scrapeResults.map((result, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm p-2 rounded bg-background/50">
+                          <div className="flex items-center gap-2">
+                            {result.status === 'completed' && <Check className="h-3 w-3 text-success" />}
+                            {result.status === 'failed' && <XCircle className="h-3 w-3 text-destructive" />}
+                            <span className="font-medium">r/{result.subredditName}</span>
+                          </div>
+                          <div className="text-muted-foreground">
+                            {result.stats ? (
+                              <span className="flex items-center gap-3">
+                                <span>{result.stats.postsScraped} posts</span>
+                                <span>{result.stats.commentsScraped} comments</span>
+                                <span className="text-primary font-medium">{result.stats.ideasGenerated} ideas</span>
+                              </span>
+                            ) : (
+                              <span className="text-destructive">Failed</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Total Stats */}
+                    {(() => {
+                      const totals = scrapeResults.reduce((acc, r) => ({
+                        posts: acc.posts + (r.stats?.postsScraped || 0),
+                        comments: acc.comments + (r.stats?.commentsScraped || 0),
+                        ideas: acc.ideas + (r.stats?.ideasGenerated || 0),
+                      }), { posts: 0, comments: 0, ideas: 0 });
+                      return (
+                        <div className="mt-3 pt-3 border-t border-success/20 flex items-center justify-between text-sm font-medium">
+                          <span>Total</span>
+                          <span className="flex items-center gap-3">
+                            <span>{totals.posts} posts</span>
+                            <span>{totals.comments} comments</span>
+                            <span className="text-success">{totals.ideas} ideas</span>
                           </span>
-                        ) : (
-                          <span className="text-destructive">Failed</span>
-                        )}
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </CardContent>
