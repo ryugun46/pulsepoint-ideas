@@ -69,18 +69,19 @@ export const onRequestPost = async (context: any) => {
     const runId = runs[0].id;
     console.log('[SCRAPE] Created run with ID:', runId);
 
-    // Start async processing (don't await - return immediately)
-    context.waitUntil(
-      runScrapeJob(runId, subreddit, body.windowDays, env, sql)
-    );
+    // Run the scrape job synchronously (wait for completion)
+    console.log('[SCRAPE] Starting scrape job...');
+    const result = await runScrapeJob(runId, subreddit, body.windowDays, env, sql);
 
-    console.log('[SCRAPE] Background job started, returning 202');
+    console.log('[SCRAPE] Job completed, returning result');
     return new Response(JSON.stringify({
       id: runId,
-      status: 'running',
-      message: 'Scrape job started',
+      status: result.status,
+      message: result.status === 'completed' ? 'Scrape job completed successfully' : 'Scrape job failed',
+      stats: result.stats,
+      error: result.error,
     }), {
-      status: 202,
+      status: result.status === 'completed' ? 200 : 500,
       headers: { 'Content-Type': 'application/json' },
     });
 
@@ -102,7 +103,7 @@ async function runScrapeJob(
   windowDays: number,
   env: any,
   sql: any
-) {
+): Promise<{ status: 'completed' | 'failed'; stats: any; error?: string }> {
   console.log(`[SCRAPE JOB ${runId}] Starting for r/${subreddit.name}, window: ${windowDays} days`);
   
   const stats = {
@@ -407,18 +408,24 @@ async function runScrapeJob(
       WHERE id = ${runId}
     `;
 
+    return { status: 'completed', stats };
+
   } catch (error) {
     console.error('Scrape job failed:', error);
+    
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
     await sql`
       UPDATE scrape_runs
       SET 
         status = 'failed',
         finished_at = NOW(),
-        error_message = ${error instanceof Error ? error.message : 'Unknown error'},
+        error_message = ${errorMessage},
         stats = ${JSON.stringify(stats)}::jsonb
       WHERE id = ${runId}
     `;
+
+    return { status: 'failed', stats, error: errorMessage };
   }
 }
 
