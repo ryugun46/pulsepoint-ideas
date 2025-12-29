@@ -1,10 +1,11 @@
 // GET /api/analyses - List all analysis runs
 
+import { neon } from '@neondatabase/serverless';
 import type { AppContext } from '../../_middleware';
 
 export const onRequestGet: PagesFunction<AppContext['env']> = async (context) => {
   try {
-    const sql = (context as any).sql;
+    const sql = neon(context.env.DATABASE_URL);
     
     const analyses = await sql`
       SELECT 

@@ -1,10 +1,11 @@
 // Health check endpoint to verify DB connectivity
 
+import { neon } from '@neondatabase/serverless';
 import type { AppContext } from '../_middleware';
 
 export const onRequestGet: PagesFunction<AppContext['env']> = async (context) => {
   try {
-    const sql = (context as any).sql;
+    const sql = neon(context.env.DATABASE_URL);
     
     // Simple query to verify connection
     const result = await sql`SELECT NOW() as timestamp`;

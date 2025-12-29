@@ -1,10 +1,11 @@
 // DELETE /api/subreddits/:id - Delete a tracked subreddit
 
+import { neon } from '@neondatabase/serverless';
 import type { AppContext } from '../../_middleware';
 
 export const onRequestDelete: PagesFunction<AppContext['env']> = async (context) => {
   try {
-    const sql = (context as any).sql;
+    const sql = neon(context.env.DATABASE_URL);
     const { id } = context.params;
     
     if (!id) {

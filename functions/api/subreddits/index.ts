@@ -1,11 +1,12 @@
 // GET /api/subreddits - List all tracked subreddits
 // POST /api/subreddits - Add a new tracked subreddit
 
+import { neon } from '@neondatabase/serverless';
 import type { AppContext } from '../../_middleware';
 
 export const onRequestGet: PagesFunction<AppContext['env']> = async (context) => {
   try {
-    const sql = (context as any).sql;
+    const sql = neon(context.env.DATABASE_URL);
     
     const subreddits = await sql`
       SELECT 
@@ -35,7 +36,7 @@ export const onRequestGet: PagesFunction<AppContext['env']> = async (context) =>
 
 export const onRequestPost: PagesFunction<AppContext['env']> = async (context) => {
   try {
-    const sql = (context as any).sql;
+    const sql = neon(context.env.DATABASE_URL);
     const body = await context.request.json() as { name: string; isActive?: boolean };
     
     if (!body.name || !body.name.trim()) {

@@ -194,7 +194,7 @@ export default function Subreddits() {
                         <div>
                           <p className="font-medium text-sm">{sub.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {(sub.members / 1000).toFixed(0)}k members
+                            Added {new Date(sub.createdAt).toLocaleDateString()}
                           </p>
                         </div>
                       </div>

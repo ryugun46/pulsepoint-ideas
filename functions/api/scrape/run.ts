@@ -1,5 +1,6 @@
 // POST /api/scrape/run - Trigger a scrape run
 
+import { neon } from '@neondatabase/serverless';
 import type { AppContext } from '../../_middleware';
 import { RedditClient } from '../../lib/reddit';
 import { OpenRouterClient } from '../../lib/openrouter';
@@ -10,7 +11,7 @@ interface ScrapeRequest {
 }
 
 export const onRequestPost: PagesFunction<AppContext['env']> = async (context) => {
-  const sql = (context as any).sql;
+  const sql = neon(context.env.DATABASE_URL);
   const env = context.env;
 
   try {
