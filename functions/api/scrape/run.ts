@@ -144,13 +144,12 @@ async function runScrapeJob(
     // Fetch posts (limit to stay within subrequest limits)
     const allPosts: any[] = [];
     let continuePages = true;
-    // CRITICAL: Each DB INSERT = 1 subrequest. Cloudflare limit = 50 total.
-    // With overhead (queries, AI calls), we can only afford ~35 inserts.
-    const MAX_POSTS = 20; // 20 post inserts
+    // CRITICAL: We batch inserts to minimize subrequests (Cloudflare limit = 50 total)
+    // With batching: 1 post insert + 1 comment insert + 1 problem insert + N clusters/ideas + other queries
+    // This should keep us well under the 50 subrequest limit
+    const MAX_POSTS = 20; // All posts in 1 batch insert
     const MAX_POSTS_WITH_COMMENTS = 5; // Only 5 posts get comments
-    const MAX_COMMENTS_PER_POST = 4; // 4 comments each = 20 comment inserts
-    // Total inserts: 20 posts + 20 comments + ~10 problems + ~3 clusters + ~3 ideas = ~56
-    // Still tight! May need to reduce further in production.
+    const MAX_COMMENTS_PER_POST = 4; // All comments in 1 batch insert
 
     while (continuePages && allPosts.length < MAX_POSTS) {
       console.log(`[SCRAPE ${runId}] Fetching posts, current count: ${allPosts.length}`);
@@ -165,37 +164,47 @@ async function runScrapeJob(
         break;
       }
 
-      // Insert posts (Note: Each INSERT counts as a subrequest)
-      // To stay within Cloudflare's 50 subrequest limit, we limit to 30 posts total
+      // Batch insert posts (1 query instead of N queries to save subrequests)
       const postsToInsert = posts.slice(0, MAX_POSTS - allPosts.length);
       
-      for (const post of postsToInsert) {
+      if (postsToInsert.length > 0) {
         try {
+          // Build values array for batch insert
+          const values = postsToInsert.map(post => sql`(
+            ${runId}, ${subreddit.id}, ${post.id},
+            to_timestamp(${post.created_utc}),
+            ${post.title}, ${post.selftext}, ${post.author},
+            ${post.permalink}, ${post.url}, ${post.score},
+            ${post.num_comments}, ${JSON.stringify(post)}::jsonb
+          )`);
+
+          // Batch insert all posts in one query
           const dbPosts = await sql`
             INSERT INTO reddit_posts (
               run_id, subreddit_id, reddit_post_id, created_utc,
               title, selftext, author, permalink, url, score, num_comments, raw
             )
-            VALUES (
-              ${runId}, ${subreddit.id}, ${post.id},
-              to_timestamp(${post.created_utc}),
-              ${post.title}, ${post.selftext}, ${post.author},
-              ${post.permalink}, ${post.url}, ${post.score},
-              ${post.num_comments}, ${JSON.stringify(post)}::jsonb
-            )
+            VALUES ${sql(values)}
             ON CONFLICT (reddit_post_id) DO UPDATE
             SET run_id = EXCLUDED.run_id
-            RETURNING id
+            RETURNING id, reddit_post_id
           `;
 
-          allPosts.push({ ...post, uuid: dbPosts[0].id });
-          stats.postsScraped++;
+          // Map UUIDs back to posts
+          for (let i = 0; i < postsToInsert.length; i++) {
+            const post = postsToInsert[i];
+            const dbPost = dbPosts.find((p: any) => p.reddit_post_id === post.id);
+            if (dbPost) {
+              allPosts.push({ ...post, uuid: dbPost.id });
+              stats.postsScraped++;
+            }
+          }
+
+          console.log(`[SCRAPE ${runId}] Batch inserted ${postsToInsert.length} posts`);
         } catch (error) {
-          console.error(`[SCRAPE ${runId}] Error inserting post ${post.id}:`, error);
+          console.error(`[SCRAPE ${runId}] Error batch inserting posts:`, error);
         }
       }
-
-      console.log(`[SCRAPE ${runId}] Inserted ${postsToInsert.length} posts`);
 
       afterCursor = after || undefined;
       
@@ -222,41 +231,52 @@ async function runScrapeJob(
     console.log(`[SCRAPE ${runId}] Fetching comments for top ${MAX_POSTS_WITH_COMMENTS} posts`);
     const topPosts = allPosts.slice(0, MAX_POSTS_WITH_COMMENTS);
     
+    const allComments: any[] = [];
     for (const post of topPosts) {
       try {
         const comments = await reddit.fetchComments(subreddit.name, post.id, 1, 10);
         
-        // Only insert top N comments per post (to minimize subrequests)
+        // Only take top N comments per post (to minimize subrequests)
         const topComments = comments.slice(0, MAX_COMMENTS_PER_POST);
         
+        // Add to batch with post UUID
         for (const comment of topComments) {
-          try {
-            await sql`
-              INSERT INTO reddit_comments (
-                run_id, subreddit_id, post_uuid, reddit_comment_id,
-                reddit_post_id, parent_reddit_comment_id, created_utc,
-                author, body, score, raw
-              )
-              VALUES (
-                ${runId}, ${subreddit.id}, ${post.uuid}, ${comment.id},
-                ${post.id}, ${comment.parent_id}, to_timestamp(${comment.created_utc}),
-                ${comment.author}, ${comment.body}, ${comment.score}, 
-                ${JSON.stringify(comment)}::jsonb
-              )
-              ON CONFLICT (reddit_comment_id) DO NOTHING
-            `;
-            stats.commentsScraped++;
-          } catch (error) {
-            console.error(`Error inserting comment ${comment.id}:`, error);
-          }
+          allComments.push({ ...comment, postUuid: post.uuid, postId: post.id });
         }
 
-        console.log(`[SCRAPE ${runId}] Stored ${topComments.length} comments for post ${post.id}`);
+        console.log(`[SCRAPE ${runId}] Fetched ${topComments.length} comments for post ${post.id}`);
         
         // Small delay between comment fetches
         await new Promise(resolve => setTimeout(resolve, 200));
       } catch (error) {
         console.error(`Error fetching comments for post ${post.id}:`, error);
+      }
+    }
+
+    // Batch insert all comments in one query
+    if (allComments.length > 0) {
+      try {
+        const values = allComments.map(comment => sql`(
+          ${runId}, ${subreddit.id}, ${comment.postUuid}, ${comment.id},
+          ${comment.postId}, ${comment.parent_id}, to_timestamp(${comment.created_utc}),
+          ${comment.author}, ${comment.body}, ${comment.score}, 
+          ${JSON.stringify(comment)}::jsonb
+        )`);
+
+        await sql`
+          INSERT INTO reddit_comments (
+            run_id, subreddit_id, post_uuid, reddit_comment_id,
+            reddit_post_id, parent_reddit_comment_id, created_utc,
+            author, body, score, raw
+          )
+          VALUES ${sql(values)}
+          ON CONFLICT (reddit_comment_id) DO NOTHING
+        `;
+        
+        stats.commentsScraped = allComments.length;
+        console.log(`[SCRAPE ${runId}] Batch inserted ${allComments.length} comments`);
+      } catch (error) {
+        console.error(`Error batch inserting comments:`, error);
       }
     }
 
@@ -319,21 +339,25 @@ async function runScrapeJob(
     const problemsToStore = allProblems.slice(0, 15);
     console.log(`[SCRAPE ${runId}] Storing ${problemsToStore.length} problems in DB`);
 
-    // Store problem statements (each is 1 subrequest)
-    for (const problem of problemsToStore) {
+    // Batch insert all problem statements in one query
+    if (problemsToStore.length > 0) {
       try {
+        const values = problemsToStore.map(problem => sql`(
+          ${runId}, ${subreddit.id}, ${problem.sourceType}, 
+          ${problem.sourceUuid}, ${problem.statement}
+        )`);
+
         await sql`
           INSERT INTO problem_statements (
             run_id, subreddit_id, source_type, source_uuid, statement
           )
-          VALUES (
-            ${runId}, ${subreddit.id}, ${problem.sourceType}, 
-            ${problem.sourceUuid}, ${problem.statement}
-          )
+          VALUES ${sql(values)}
         `;
-        stats.problemsExtracted++;
+        
+        stats.problemsExtracted = problemsToStore.length;
+        console.log(`[SCRAPE ${runId}] Batch inserted ${problemsToStore.length} problem statements`);
       } catch (error) {
-        console.error(`Error storing problem statement:`, error);
+        console.error(`Error batch inserting problem statements:`, error);
       }
     }
 
