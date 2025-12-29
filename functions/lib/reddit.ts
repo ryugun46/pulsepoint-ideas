@@ -55,7 +55,9 @@ export class RedditClient {
     for (let i = 0; i < retries; i++) {
       try {
         const headers: Record<string, string> = {
-          'User-Agent': this.config.userAgent,
+          'User-Agent': this.config.userAgent || 'web:PulsePoint:v1.0.0 (by /u/pulsepoint)',
+          'Accept': 'application/json',
+          'Accept-Language': 'en-US,en;q=0.9',
         };
 
         // Add ETag caching if we've seen this URL before
@@ -78,6 +80,15 @@ export class RedditClient {
           console.warn(`Rate limited, waiting ${retryAfter}s`);
           await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
           continue;
+        }
+
+        // Handle 403 Forbidden with detailed error message
+        if (response.status === 403) {
+          const errorText = await response.text().catch(() => '');
+          const errorMessage = `Reddit API 403 Forbidden. User-Agent: ${this.config.userAgent || 'not set'}. ` +
+            `Please ensure REDDIT_USER_AGENT is set in format: "web:appname:version (by /u/username)". ` +
+            `Response: ${errorText || 'No additional details'}`;
+          throw new Error(errorMessage);
         }
 
         if (!response.ok) {

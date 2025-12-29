@@ -107,7 +107,7 @@ async function runScrapeJob(
   try {
     // Initialize clients
     const reddit = new RedditClient({
-      userAgent: env.REDDIT_USER_AGENT || 'PulsePoint/1.0',
+      userAgent: env.REDDIT_USER_AGENT || 'web:PulsePoint:v1.0.0 (by /u/pulsepoint)',
     });
 
     const ai = new OpenRouterClient({
