@@ -1,0 +1,15 @@
+# Cloudflare Pages Functions Environment Variables
+# Copy this to .dev.vars for local development
+
+# Neon Database
+DATABASE_URL=postgresql://username:password@host.neon.tech/database?sslmode=require
+
+# Reddit API (https://www.reddit.com/prefs/apps)
+REDDIT_CLIENT_ID=your_reddit_client_id
+REDDIT_CLIENT_SECRET=your_reddit_client_secret
+REDDIT_USER_AGENT=YourAppName/1.0
+
+# OpenRouter API (https://openrouter.ai/)
+OPENROUTER_API_KEY=your_openrouter_api_key
+OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+

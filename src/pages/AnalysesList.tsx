@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -16,26 +16,44 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AppShell } from '@/components/layout/AppShell';
-import { useApp } from '@/context/AppContext';
+import { api, type ScrapeRun } from '@/lib/api';
+import { toast } from 'sonner';
 
 export default function AnalysesList() {
-  const { analyses, collections } = useApp();
+  const [analyses, setAnalyses] = useState<ScrapeRun[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('recent');
 
+  useEffect(() => {
+    loadAnalyses();
+  }, []);
+
+  const loadAnalyses = async () => {
+    try {
+      const data = await api.getAnalyses();
+      setAnalyses(data);
+    } catch (error) {
+      console.error('Failed to load analyses:', error);
+      toast.error('Failed to load analyses');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredAnalyses = analyses
     .filter((analysis) => {
-      const matchesSearch = analysis.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = analysis.subredditName.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === 'all' || analysis.status === statusFilter;
       return matchesSearch && matchesStatus;
     })
     .sort((a, b) => {
       if (sortBy === 'recent') {
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
       }
       if (sortBy === 'problems') {
-        return b.counts.problems - a.counts.problems;
+        return (b.stats?.problemsExtracted || 0) - (a.stats?.problemsExtracted || 0);
       }
       return 0;
     });
@@ -93,7 +111,13 @@ export default function AnalysesList() {
         </div>
 
         {/* Analyses List */}
-        {filteredAnalyses.length === 0 ? (
+        {loading ? (
+          <Card>
+            <CardContent className="flex items-center justify-center py-16">
+              <div className="text-muted-foreground">Loading analyses...</div>
+            </CardContent>
+          </Card>
+        ) : filteredAnalyses.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16">
               <FileText className="h-12 w-12 text-muted-foreground mb-4" />
@@ -103,10 +127,10 @@ export default function AnalysesList() {
                   ? 'Try adjusting your filters'
                   : 'Run your first analysis to discover pain points and opportunities'}
               </p>
-              <Link to="/app/new">
+              <Link to="/app/subreddits">
                 <Button>
                   <Plus className="mr-2 h-4 w-4" />
-                  New Analysis
+                  Add Subreddit
                 </Button>
               </Link>
             </CardContent>
@@ -129,36 +153,27 @@ export default function AnalysesList() {
                             <FileText className="h-5 w-5" />
                           </div>
                           <div className="min-w-0">
-                            <h3 className="font-semibold truncate">{analysis.name}</h3>
+                            <h3 className="font-semibold truncate">r/{analysis.subredditName}</h3>
                             <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
-                                {new Date(analysis.createdAt).toLocaleDateString()}
+                                {new Date(analysis.startedAt).toLocaleDateString()}
                               </span>
                               <span>•</span>
-                              <span>{analysis.timeframe}</span>
-                              <span>•</span>
-                              <span>{analysis.subreddits.length} subreddits</span>
+                              <span>Last {analysis.windowDays} day{analysis.windowDays > 1 ? 's' : ''}</span>
                             </div>
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {analysis.subreddits.slice(0, 3).map((sub) => (
-                                <Badge key={sub} variant="secondary" className="text-xs">
-                                  r/{sub}
-                                </Badge>
-                              ))}
-                              {analysis.subreddits.length > 3 && (
-                                <Badge variant="muted" className="text-xs">
-                                  +{analysis.subreddits.length - 3}
-                                </Badge>
-                              )}
-                            </div>
+                            {analysis.finishedAt && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                Completed in {Math.round((new Date(analysis.finishedAt).getTime() - new Date(analysis.startedAt).getTime()) / 1000)}s
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
                           <Badge
                             variant={
                               analysis.status === 'completed'
-                                ? 'success'
+                                ? 'default'
                                 : analysis.status === 'failed'
                                 ? 'destructive'
                                 : 'secondary'
@@ -166,12 +181,16 @@ export default function AnalysesList() {
                           >
                             {analysis.status}
                           </Badge>
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 text-sm">
-                            <div className="text-muted-foreground">Problems</div>
-                            <div className="font-medium text-right">{analysis.counts.problems}</div>
-                            <div className="text-muted-foreground">Clusters</div>
-                            <div className="font-medium text-right">{analysis.counts.clusters}</div>
-                          </div>
+                          {analysis.stats && (
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 text-sm">
+                              <div className="text-muted-foreground">Posts</div>
+                              <div className="font-medium text-right">{analysis.stats.postsScraped}</div>
+                              <div className="text-muted-foreground">Problems</div>
+                              <div className="font-medium text-right">{analysis.stats.problemsExtracted}</div>
+                              <div className="text-muted-foreground">Ideas</div>
+                              <div className="font-medium text-right">{analysis.stats.ideasGenerated}</div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </CardContent>

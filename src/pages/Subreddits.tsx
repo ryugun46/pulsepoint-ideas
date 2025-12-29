@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Search, 
@@ -9,7 +9,8 @@ import {
   Users,
   Activity,
   Check,
-  X
+  X,
+  Play
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,11 +18,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AppShell } from '@/components/layout/AppShell';
 import { useApp } from '@/context/AppContext';
-import { mockSubreddits } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { api, type TrackedSubreddit } from '@/lib/api';
 import type { Collection } from '@/types';
 
 export default function Subreddits() {
@@ -31,8 +33,73 @@ export default function Subreddits() {
   const [newCollectionName, setNewCollectionName] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
+  const [trackedSubreddits, setTrackedSubreddits] = useState<TrackedSubreddit[]>([]);
+  const [newSubreddit, setNewSubreddit] = useState('');
+  const [isAddingSubreddit, setIsAddingSubreddit] = useState(false);
+  const [scrapeWindowDays, setScrapeWindowDays] = useState<number>(7);
+  const [selectedSubredditForScrape, setSelectedSubredditForScrape] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const filteredSubreddits = mockSubreddits.filter(s =>
+  useEffect(() => {
+    loadSubreddits();
+  }, []);
+
+  const loadSubreddits = async () => {
+    try {
+      const subs = await api.getSubreddits();
+      setTrackedSubreddits(subs);
+    } catch (error) {
+      console.error('Failed to load subreddits:', error);
+      toast.error('Failed to load subreddits');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddSubreddit = async () => {
+    if (!newSubreddit.trim()) {
+      toast.error('Please enter a subreddit name');
+      return;
+    }
+
+    setIsAddingSubreddit(true);
+    try {
+      await api.addSubreddit(newSubreddit);
+      toast.success(`Added r/${newSubreddit}`);
+      setNewSubreddit('');
+      await loadSubreddits();
+    } catch (error) {
+      console.error('Failed to add subreddit:', error);
+      toast.error('Failed to add subreddit');
+    } finally {
+      setIsAddingSubreddit(false);
+    }
+  };
+
+  const handleDeleteSubreddit = async (id: string, name: string) => {
+    try {
+      await api.deleteSubreddit(id);
+      toast.success(`Deleted r/${name}`);
+      await loadSubreddits();
+    } catch (error) {
+      console.error('Failed to delete subreddit:', error);
+      toast.error('Failed to delete subreddit');
+    }
+  };
+
+  const handleRunScrape = async (subredditId: string, name: string) => {
+    try {
+      const result = await api.runScrape(subredditId, scrapeWindowDays);
+      toast.success(`Scrape started for r/${name}`, {
+        description: `Run ID: ${result.id}`,
+      });
+    } catch (error) {
+      console.error('Failed to start scrape:', error);
+      toast.error('Failed to start scrape');
+    }
+  };
+
+  const filteredSubreddits = trackedSubreddits.filter(s =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -242,44 +309,86 @@ export default function Subreddits() {
         {/* All Subreddits */}
         <Card>
           <CardHeader>
-            <CardTitle>Browse Subreddits</CardTitle>
-            <CardDescription>
-              Search and explore available subreddits
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Tracked Subreddits</CardTitle>
+                <CardDescription>
+                  Add subreddits to track and run scrapes
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select value={scrapeWindowDays.toString()} onValueChange={(v) => setScrapeWindowDays(parseInt(v))}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Last 24h</SelectItem>
+                    <SelectItem value="7">Last 7 days</SelectItem>
+                    <SelectItem value="30">Last 30 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <div className="flex gap-2 mb-4">
               <Input
-                placeholder="Search subreddits..."
-                className="pl-10"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Enter subreddit name (e.g., saas or r/saas)"
+                value={newSubreddit}
+                onChange={(e) => setNewSubreddit(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddSubreddit()}
               />
+              <Button onClick={handleAddSubreddit} disabled={isAddingSubreddit}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add
+              </Button>
             </div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {filteredSubreddits.map((sub) => (
-                <div
-                  key={sub.name}
-                  className="flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/30 transition-colors"
-                >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-sm font-medium">
-                    r/
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-sm truncate">{sub.name}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{(sub.members / 1000).toFixed(0)}k</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1">
-                        <Activity className="h-3 w-3" />
-                        {sub.activityScore}
-                      </span>
+            
+            {loading ? (
+              <div className="text-center py-8 text-muted-foreground">Loading...</div>
+            ) : filteredSubreddits.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No tracked subreddits yet. Add one above to get started.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredSubreddits.map((sub) => (
+                  <div
+                    key={sub.id}
+                    className="flex items-center justify-between p-4 rounded-lg border border-border hover:border-primary/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-sm font-medium">
+                        r/
+                      </div>
+                      <div>
+                        <p className="font-medium">{sub.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Added {new Date(sub.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        size="sm" 
+                        onClick={() => handleRunScrape(sub.id, sub.name)}
+                      >
+                        <Play className="mr-2 h-4 w-4" />
+                        Run Scrape
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteSubreddit(sub.id, sub.name)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
