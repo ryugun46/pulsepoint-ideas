@@ -371,12 +371,13 @@ async function runScrapeJob(
     }
 
     // Extract problems from top comments (each AI call = 1 subrequest to OpenRouter)
+    // Note: LIMIT is hardcoded because parameterized LIMIT can cause issues with some drivers
     const comments = await sql`
       SELECT id, body
       FROM reddit_comments
       WHERE run_id = ${runId}
       ORDER BY score DESC
-      LIMIT ${MAX_COMMENTS_TO_ANALYZE}
+      LIMIT 8
     `;
 
     for (const comment of comments) {
