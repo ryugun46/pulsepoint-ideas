@@ -6971,7 +6971,7 @@ async function runScrapeJob(runId, subreddit, windowDays, env2, sql) {
     }
     const allPosts = [];
     let continuePages = true;
-    const MAX_POSTS = 5;
+    const MAX_POSTS = 8;
     const MAX_POSTS_WITH_COMMENTS = 2;
     const MAX_COMMENTS_PER_POST = 3;
     console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post (ALL will be AI analyzed)`);
@@ -7083,7 +7083,7 @@ async function runScrapeJob(runId, subreddit, windowDays, env2, sql) {
     }
     const allProblems = [];
     const MAX_PROBLEMS_PER_SOURCE = 2;
-    const MAX_PROBLEMS_TO_STORE = 8;
+    const MAX_PROBLEMS_TO_STORE = 4;
     console.log(`[SCRAPE ${runId}] Starting AI problem extraction: analyzing ALL ${allPosts.length} posts and ALL comments`);
     const postsToAnalyze = allPosts;
     for (const post of postsToAnalyze) {
@@ -8113,7 +8113,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env2, _ctx, middlewareCtx
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// ../.wrangler/tmp/bundle-aFsTJ8/middleware-insertion-facade.js
+// ../.wrangler/tmp/bundle-7RcG7C/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -8145,7 +8145,7 @@ function __facade_invoke__(request, env2, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// ../.wrangler/tmp/bundle-aFsTJ8/middleware-loader.entry.ts
+// ../.wrangler/tmp/bundle-7RcG7C/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

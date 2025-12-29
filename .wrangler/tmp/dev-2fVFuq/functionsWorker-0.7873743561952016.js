@@ -8183,7 +8183,7 @@ async function runScrapeJob(runId, subreddit, windowDays, env22, sql) {
     }
     const allPosts = [];
     let continuePages = true;
-    const MAX_POSTS = 5;
+    const MAX_POSTS = 8;
     const MAX_POSTS_WITH_COMMENTS = 2;
     const MAX_COMMENTS_PER_POST = 3;
     console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post (ALL will be AI analyzed)`);
@@ -8295,7 +8295,7 @@ async function runScrapeJob(runId, subreddit, windowDays, env22, sql) {
     }
     const allProblems = [];
     const MAX_PROBLEMS_PER_SOURCE = 2;
-    const MAX_PROBLEMS_TO_STORE = 8;
+    const MAX_PROBLEMS_TO_STORE = 4;
     console.log(`[SCRAPE ${runId}] Starting AI problem extraction: analyzing ALL ${allPosts.length} posts and ALL comments`);
     const postsToAnalyze = allPosts;
     for (const post of postsToAnalyze) {

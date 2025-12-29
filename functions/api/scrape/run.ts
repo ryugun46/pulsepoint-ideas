@@ -178,30 +178,29 @@ async function runScrapeJob(
     let continuePages = true;
     
     // ============================================================
-    // SCRAPER LIMITS - CLOUDFLARE FREE TIER (50 subrequests max)
+    // SCRAPER LIMITS - MAXIMIZED FOR 50 SUBREQUEST LIMIT
     // ============================================================
-    // CRITICAL: Every scraped post/comment WILL be analyzed by AI.
-    // No random sampling - ALL content gets full AI analysis.
+    // GOAL: Scrape as many posts/comments as possible, analyze ALL with AI.
     // 
-    // Budget breakdown (~48 subrequests):
-    // - Startup:     3 (subreddit, run insert, checkpoint query)
-    // - Posts:       6 (1 Reddit fetch + 5 DB inserts)
+    // Budget breakdown (~49 subrequests):
+    // - Startup:     3 (subreddit query, run insert, checkpoint query)
+    // - Posts:       9 (1 Reddit fetch + 8 DB inserts)
     // - Checkpoint:  1 (save)
     // - Comments:    8 (2 Reddit fetches + 6 DB inserts)
     // - AI setup:    1 (models API call)
-    // - AI posts:    5 (analyze ALL 5 posts)
-    // - AI comments: 6 (analyze ALL 6 comments)
+    // - AI posts:    8 (analyze ALL 8 posts)
     // - DB query:    1 (get comments for AI)
-    // - Problems:    8 (DB inserts)
-    // - Clustering:  3 (1 AI call + 2 cluster inserts)
-    // - Ideas:       4 (2 AI calls + 2 idea inserts)
-    // - Final:       2 (update run status)
-    // Total:        48 subrequests (under 50 limit)
+    // - AI comments: 6 (analyze ALL 6 comments)
+    // - Problems:    4 (DB inserts)
+    // - Clustering:  3 (1 AI call + ~2 cluster inserts)
+    // - Ideas:       4 (~2 AI calls + ~2 idea inserts)
+    // - Final:       1 (update run status)
+    // Total:        49 subrequests (1 under 50 limit)
     // 
-    // KEY: All scraped content → All analyzed by AI → Comprehensive results
+    // RESULT: 8 posts + 6 comments = 14 pieces of content, ALL analyzed by AI
     // ============================================================
-    const MAX_POSTS = 5;               // Scrape 5 posts (ALL will be analyzed by AI)
-    const MAX_POSTS_WITH_COMMENTS = 2; // Fetch comments from 2 posts
+    const MAX_POSTS = 8;               // Scrape 8 posts (ALL analyzed by AI)
+    const MAX_POSTS_WITH_COMMENTS = 2; // Fetch comments from top 2 posts
     const MAX_COMMENTS_PER_POST = 3;   // 3 comments each = 6 total (ALL analyzed by AI)
     
     console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post (ALL will be AI analyzed)`);
@@ -347,10 +346,12 @@ async function runScrapeJob(
     // ============================================================
     // AI ANALYSIS - ANALYZE ALL SCRAPED CONTENT
     // ============================================================
-    // Unlike before where we sampled, now we analyze EVERYTHING we scraped.
-    // This gives more comprehensive and accurate problem extraction.
+    // Every scraped post and comment is analyzed by AI.
+    // Problems are extracted, then clustered, then ideas generated.
+    // We store fewer problems in DB to save subrequests, but clustering
+    // uses ALL extracted problems from memory for comprehensive analysis.
     const MAX_PROBLEMS_PER_SOURCE = 2;  // Extract up to 2 problems per post/comment
-    const MAX_PROBLEMS_TO_STORE = 8;    // Store up to 8 problems total
+    const MAX_PROBLEMS_TO_STORE = 4;    // Store top 4 problems in DB (saves subrequests)
 
     console.log(`[SCRAPE ${runId}] Starting AI problem extraction: analyzing ALL ${allPosts.length} posts and ALL comments`);
     
