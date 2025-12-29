@@ -1,8 +1,6 @@
-// Reddit API client utilities
+// Reddit Public JSON API client (no OAuth required)
 
 export interface RedditConfig {
-  clientId: string;
-  clientSecret: string;
   userAgent: string;
 }
 
@@ -31,71 +29,74 @@ export interface RedditComment {
 
 export class RedditClient {
   private config: RedditConfig;
-  private accessToken: string | null = null;
-  private tokenExpiry: number = 0;
+  private lastRequestTime: number = 0;
+  private minRequestInterval: number = 1000; // 1 request per second baseline
+  private etagCache: Map<string, string> = new Map();
 
   constructor(config: RedditConfig) {
     this.config = config;
   }
 
-  private async ensureAuth(): Promise<void> {
-    if (this.accessToken && Date.now() < this.tokenExpiry) {
-      return;
+  private async throttle(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      const waitTime = this.minRequestInterval - timeSinceLastRequest;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
-
-    const auth = btoa(`${this.config.clientId}:${this.config.clientSecret}`);
-    const response = await fetch('https://www.reddit.com/api/v1/access_token', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': this.config.userAgent,
-      },
-      body: 'grant_type=client_credentials',
-    });
-
-    if (!response.ok) {
-      throw new Error(`Reddit auth failed: ${response.status}`);
-    }
-
-    const data = await response.json() as { access_token: string; expires_in: number };
-    this.accessToken = data.access_token;
-    this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000; // 1 min buffer
-  }
-
-  private async sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    
+    this.lastRequestTime = Date.now();
   }
 
   private async fetchWithRetry(url: string, retries = 3): Promise<any> {
-    await this.ensureAuth();
+    await this.throttle();
 
     for (let i = 0; i < retries; i++) {
       try {
-        const response = await fetch(url, {
-          headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-            'User-Agent': this.config.userAgent,
-          },
-        });
+        const headers: Record<string, string> = {
+          'User-Agent': this.config.userAgent,
+        };
 
+        // Add ETag caching if we've seen this URL before
+        const cachedEtag = this.etagCache.get(url);
+        if (cachedEtag) {
+          headers['If-None-Match'] = cachedEtag;
+        }
+
+        const response = await fetch(url, { headers });
+
+        // Handle 304 Not Modified (cached content)
+        if (response.status === 304) {
+          console.log(`Cache hit for ${url}`);
+          return null; // Indicates no new data
+        }
+
+        // Handle rate limiting
         if (response.status === 429) {
           const retryAfter = parseInt(response.headers.get('retry-after') || '60', 10);
           console.warn(`Rate limited, waiting ${retryAfter}s`);
-          await this.sleep(retryAfter * 1000);
+          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
           continue;
         }
 
         if (!response.ok) {
-          throw new Error(`Reddit API error: ${response.status}`);
+          throw new Error(`Reddit API error: ${response.status} ${response.statusText}`);
+        }
+
+        // Cache ETag for future requests
+        const etag = response.headers.get('etag');
+        if (etag) {
+          this.etagCache.set(url, etag);
         }
 
         return await response.json();
       } catch (error) {
         if (i === retries - 1) throw error;
+        
         const backoff = Math.min(1000 * Math.pow(2, i), 10000);
         console.warn(`Retry ${i + 1}/${retries} after ${backoff}ms`);
-        await this.sleep(backoff);
+        await new Promise(resolve => setTimeout(resolve, backoff));
       }
     }
   }
@@ -106,38 +107,49 @@ export class RedditClient {
     afterCursor?: string,
     limit = 100
   ): Promise<{ posts: RedditPost[]; after: string | null }> {
-    let url = `https://oauth.reddit.com/r/${subreddit}/new?limit=${limit}`;
+    let url = `https://www.reddit.com/r/${subreddit}/new.json?limit=${limit}`;
     if (afterCursor) {
       url += `&after=${afterCursor}`;
     }
 
     const data = await this.fetchWithRetry(url);
+    
+    // Handle 304 (no new data)
+    if (!data) {
+      return { posts: [], after: null };
+    }
+
     const posts: RedditPost[] = [];
     let shouldContinue = false;
 
-    for (const child of data.data.children) {
-      const post = child.data;
-      if (post.created_utc < cutoffTimestamp) {
-        break;
+    if (data?.data?.children) {
+      for (const child of data.data.children) {
+        const post = child.data;
+        
+        // Stop if we've reached posts older than our cutoff
+        if (post.created_utc < cutoffTimestamp) {
+          break;
+        }
+        
+        posts.push({
+          id: post.id,
+          title: post.title || '',
+          selftext: post.selftext || '',
+          author: post.author || '[deleted]',
+          created_utc: post.created_utc,
+          permalink: post.permalink,
+          url: post.url,
+          score: post.score || 0,
+          num_comments: post.num_comments || 0,
+          subreddit: post.subreddit,
+        });
+        shouldContinue = true;
       }
-      posts.push({
-        id: post.id,
-        title: post.title || '',
-        selftext: post.selftext || '',
-        author: post.author || '[deleted]',
-        created_utc: post.created_utc,
-        permalink: post.permalink,
-        url: post.url,
-        score: post.score || 0,
-        num_comments: post.num_comments || 0,
-        subreddit: post.subreddit,
-      });
-      shouldContinue = true;
     }
 
     return {
       posts,
-      after: shouldContinue ? data.data.after : null,
+      after: shouldContinue && data?.data?.after ? data.data.after : null,
     };
   }
 
@@ -145,10 +157,15 @@ export class RedditClient {
     subreddit: string,
     postId: string,
     maxDepth = 2,
-    maxComments = 100
+    maxComments = 50
   ): Promise<RedditComment[]> {
-    const url = `https://oauth.reddit.com/r/${subreddit}/comments/${postId}?limit=100&depth=${maxDepth}`;
+    const url = `https://www.reddit.com/r/${subreddit}/comments/${postId}.json?limit=100&depth=${maxDepth}`;
+    
     const data = await this.fetchWithRetry(url);
+    
+    if (!data) {
+      return []; // 304 or error
+    }
 
     const comments: RedditComment[] = [];
     
@@ -179,11 +196,11 @@ export class RedditClient {
       }
     };
 
-    if (data[1]?.data?.children) {
+    // Reddit returns [post_listing, comments_listing]
+    if (Array.isArray(data) && data[1]?.data?.children) {
       extractComments(data[1].data.children);
     }
 
     return comments;
   }
 }
-

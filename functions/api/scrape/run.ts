@@ -106,9 +106,7 @@ async function runScrapeJob(
   try {
     // Initialize clients
     const reddit = new RedditClient({
-      clientId: env.REDDIT_CLIENT_ID,
-      clientSecret: env.REDDIT_CLIENT_SECRET,
-      userAgent: env.REDDIT_USER_AGENT,
+      userAgent: env.REDDIT_USER_AGENT || 'PulsePoint/1.0',
     });
 
     const ai = new OpenRouterClient({
