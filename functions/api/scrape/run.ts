@@ -178,27 +178,31 @@ async function runScrapeJob(
     let continuePages = true;
     
     // ============================================================
-    // SCRAPER LIMITS DOCUMENTATION
+    // SCRAPER LIMITS - CLOUDFLARE FREE TIER CONSTRAINT
     // ============================================================
-    // Cloudflare Pages has subrequest limits, but we prioritize comprehensive data.
-    // Each DB insert = 1 subrequest. Each Reddit/AI API call = 1 subrequest.
+    // CRITICAL: Cloudflare Pages FREE tier = 50 subrequests MAX per request.
+    // Each DB query = 1 subrequest. Each external API call = 1 subrequest.
     // 
-    // Current budget breakdown (optimized for comprehensive analysis):
-    // - Posts:    ~25 inserts (MAX_POSTS)
-    // - Comments: ~50 inserts (10 posts × 5 comments each)
-    // - Problems: ~15 inserts
-    // - Clusters: ~8 inserts
-    // - Ideas:    ~8 inserts  
-    // - Other:    ~10 queries (checkpoints, run updates, AI calls, etc.)
+    // Budget breakdown (~48 subrequests):
+    // - Startup:  3 (subreddit query, run insert, checkpoint)
+    // - Posts:    11 (1 fetch + 10 inserts)
+    // - Checkpoint: 1 (save)
+    // - Comments: 12 (3 fetches + 9 inserts)
+    // - AI setup: 1 (models API)
+    // - AI extraction: 6 (3 posts + 3 comments)
+    // - Comments query: 1
+    // - Problems: 8 inserts
+    // - Clustering: 1 call + 2 inserts = 3
+    // - Ideas: 2 calls + 2 inserts = 4
+    // - Final: 2 (update run)
+    // Total: ~48 subrequests
     // 
-    // Note: This may approach or exceed free tier limits on Cloudflare Pages.
-    // If you encounter errors, consider:
-    // 1. Running multiple smaller scrapes
-    // 2. Upgrading to Cloudflare Workers Paid plan (no subrequest limits)
+    // To scrape MORE data, run multiple scrapes on the same subreddit.
+    // Or upgrade to Cloudflare Workers Paid ($5/mo) for unlimited subrequests.
     // ============================================================
-    const MAX_POSTS = 25;              // Maximum posts to scrape (increased from 10)
-    const MAX_POSTS_WITH_COMMENTS = 10; // Top 10 posts get their comments fetched (increased from 3)
-    const MAX_COMMENTS_PER_POST = 5;   // Up to 5 comments per post = 50 comments max (increased from 3)
+    const MAX_POSTS = 10;              // Maximum posts to scrape
+    const MAX_POSTS_WITH_COMMENTS = 3; // Only top 3 posts get their comments fetched
+    const MAX_COMMENTS_PER_POST = 3;   // Up to 3 comments per post = 9 comments max
     
     console.log(`[SCRAPE ${runId}] Limits: ${MAX_POSTS} posts, ${MAX_POSTS_WITH_COMMENTS} posts with comments, ${MAX_COMMENTS_PER_POST} comments/post`);
 
@@ -337,16 +341,15 @@ async function runScrapeJob(
     }
 
     // AI Processing: Extract problems from posts and comments
-    // More content analyzed = more comprehensive problem identification
     const allProblems: Array<{ statement: string; sourceType: string; sourceUuid: string }> = [];
     
     // ============================================================
-    // AI ANALYSIS LIMITS (increased for comprehensive analysis)
+    // AI ANALYSIS LIMITS (constrained by 50 subrequest limit)
     // ============================================================
-    const MAX_POSTS_TO_ANALYZE = 8;     // Analyze top 8 posts for problems (increased from 3)
-    const MAX_COMMENTS_TO_ANALYZE = 8;  // Analyze top 8 comments for problems (increased from 3)
-    const MAX_PROBLEMS_PER_SOURCE = 3;  // Extract up to 3 problems per post/comment (increased from 2)
-    const MAX_PROBLEMS_TO_STORE = 20;   // Store up to 20 problems (increased from 10)
+    const MAX_POSTS_TO_ANALYZE = 3;     // Analyze top 3 posts for problems
+    const MAX_COMMENTS_TO_ANALYZE = 3;  // Analyze top 3 comments for problems
+    const MAX_PROBLEMS_PER_SOURCE = 2;  // Extract up to 2 problems per post/comment
+    const MAX_PROBLEMS_TO_STORE = 8;    // Store up to 8 problems
 
     console.log(`[SCRAPE ${runId}] Starting AI problem extraction: ${MAX_POSTS_TO_ANALYZE} posts, ${MAX_COMMENTS_TO_ANALYZE} comments`);
     
@@ -377,7 +380,7 @@ async function runScrapeJob(
       FROM reddit_comments
       WHERE run_id = ${runId}
       ORDER BY score DESC
-      LIMIT 8
+      LIMIT 3
     `;
 
     for (const comment of comments) {
