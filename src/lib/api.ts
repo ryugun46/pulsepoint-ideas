@@ -102,11 +102,29 @@ class ApiClient {
   }
 
   // Scraping
-  async runScrape(subredditId: string, windowDays: number): Promise<{ id: string; status: string }> {
+  async runScrape(subredditId: string, windowDays: number): Promise<{ 
+    id: string; 
+    status: string;
+    message?: string;
+    stats?: {
+      postsScraped: number;
+      commentsScraped: number;
+      problemsExtracted: number;
+      clustersCreated: number;
+      ideasGenerated: number;
+    };
+    error?: string;
+  }> {
     return this.request('/api/scrape/run', {
       method: 'POST',
       body: JSON.stringify({ subredditId, windowDays }),
     });
+  }
+
+  // Get subreddit by name (for analysis page)
+  async getSubredditByName(name: string): Promise<TrackedSubreddit | null> {
+    const subreddits = await this.getSubreddits();
+    return subreddits.find(s => s.name.toLowerCase() === name.toLowerCase()) || null;
   }
 
   // Analyses

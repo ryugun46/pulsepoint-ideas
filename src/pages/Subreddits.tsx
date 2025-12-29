@@ -10,7 +10,9 @@ import {
   Activity,
   Check,
   X,
-  Play
+  Play,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +28,17 @@ import { toast } from 'sonner';
 import { api, type TrackedSubreddit } from '@/lib/api';
 import type { Collection } from '@/types';
 
+interface ScrapeStatus {
+  [subredditId: string]: {
+    status: 'idle' | 'running' | 'completed' | 'failed';
+    message?: string;
+    stats?: {
+      postsScraped: number;
+      ideasGenerated: number;
+    };
+  };
+}
+
 export default function Subreddits() {
   const { collections, setCollections } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,8 +50,8 @@ export default function Subreddits() {
   const [newSubreddit, setNewSubreddit] = useState('');
   const [isAddingSubreddit, setIsAddingSubreddit] = useState(false);
   const [scrapeWindowDays, setScrapeWindowDays] = useState<number>(7);
-  const [selectedSubredditForScrape, setSelectedSubredditForScrape] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [scrapeStatus, setScrapeStatus] = useState<ScrapeStatus>({});
 
   useEffect(() => {
     loadSubreddits();
@@ -50,7 +63,9 @@ export default function Subreddits() {
       setTrackedSubreddits(subs);
     } catch (error) {
       console.error('Failed to load subreddits:', error);
-      toast.error('Failed to load subreddits');
+      toast.error('Failed to load subreddits', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
     } finally {
       setLoading(false);
     }
@@ -62,15 +77,20 @@ export default function Subreddits() {
       return;
     }
 
+    // Clean the subreddit name (remove r/ prefix if present)
+    const cleanName = newSubreddit.trim().replace(/^r\//, '');
+
     setIsAddingSubreddit(true);
     try {
-      await api.addSubreddit(newSubreddit);
-      toast.success(`Added r/${newSubreddit}`);
+      await api.addSubreddit(cleanName);
+      toast.success(`Added r/${cleanName}`);
       setNewSubreddit('');
       await loadSubreddits();
     } catch (error) {
       console.error('Failed to add subreddit:', error);
-      toast.error('Failed to add subreddit');
+      toast.error('Failed to add subreddit', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
     } finally {
       setIsAddingSubreddit(false);
     }
@@ -83,19 +103,67 @@ export default function Subreddits() {
       await loadSubreddits();
     } catch (error) {
       console.error('Failed to delete subreddit:', error);
-      toast.error('Failed to delete subreddit');
+      toast.error('Failed to delete subreddit', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   };
 
   const handleRunScrape = async (subredditId: string, name: string) => {
+    // Set running status
+    setScrapeStatus(prev => ({
+      ...prev,
+      [subredditId]: { status: 'running' }
+    }));
+
     try {
       const result = await api.runScrape(subredditId, scrapeWindowDays);
-      toast.success(`Scrape started for r/${name}`, {
-        description: `Run ID: ${result.id}`,
-      });
+      
+      if (result.status === 'completed') {
+        setScrapeStatus(prev => ({
+          ...prev,
+          [subredditId]: { 
+            status: 'completed',
+            stats: result.stats ? {
+              postsScraped: result.stats.postsScraped,
+              ideasGenerated: result.stats.ideasGenerated
+            } : undefined
+          }
+        }));
+        
+        toast.success(`Scrape completed for r/${name}`, {
+          description: result.stats 
+            ? `${result.stats.postsScraped} posts, ${result.stats.ideasGenerated} ideas generated`
+            : `Run ID: ${result.id}`
+        });
+      } else {
+        setScrapeStatus(prev => ({
+          ...prev,
+          [subredditId]: { 
+            status: 'failed',
+            message: result.error || 'Scrape failed'
+          }
+        }));
+        
+        toast.error(`Scrape failed for r/${name}`, {
+          description: result.error || 'Unknown error'
+        });
+      }
     } catch (error) {
       console.error('Failed to start scrape:', error);
-      toast.error('Failed to start scrape');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      setScrapeStatus(prev => ({
+        ...prev,
+        [subredditId]: { 
+          status: 'failed',
+          message: errorMessage
+        }
+      }));
+      
+      toast.error(`Failed to start scrape for r/${name}`, {
+        description: errorMessage
+      });
     }
   };
 
@@ -132,6 +200,51 @@ export default function Subreddits() {
   const handleDeleteCollection = (id: string) => {
     setCollections(collections.filter(c => c.id !== id));
     toast.success('Collection deleted');
+  };
+
+  const getButtonContent = (subredditId: string) => {
+    const status = scrapeStatus[subredditId];
+    
+    if (status?.status === 'running') {
+      return (
+        <>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Running...
+        </>
+      );
+    }
+    
+    if (status?.status === 'completed') {
+      return (
+        <>
+          <Check className="mr-2 h-4 w-4" />
+          Done
+        </>
+      );
+    }
+    
+    if (status?.status === 'failed') {
+      return (
+        <>
+          <AlertCircle className="mr-2 h-4 w-4" />
+          Retry
+        </>
+      );
+    }
+    
+    return (
+      <>
+        <Play className="mr-2 h-4 w-4" />
+        Run Scrape
+      </>
+    );
+  };
+
+  const getButtonVariant = (subredditId: string): "default" | "outline" | "destructive" | "secondary" => {
+    const status = scrapeStatus[subredditId];
+    if (status?.status === 'completed') return 'secondary';
+    if (status?.status === 'failed') return 'destructive';
+    return 'default';
   };
 
   return (
@@ -324,7 +437,6 @@ export default function Subreddits() {
                   <SelectContent>
                     <SelectItem value="1">Last 24h</SelectItem>
                     <SelectItem value="7">Last 7 days</SelectItem>
-                    <SelectItem value="30">Last 30 days</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -339,13 +451,20 @@ export default function Subreddits() {
                 onKeyDown={(e) => e.key === 'Enter' && handleAddSubreddit()}
               />
               <Button onClick={handleAddSubreddit} disabled={isAddingSubreddit}>
-                <Plus className="mr-2 h-4 w-4" />
+                {isAddingSubreddit ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 h-4 w-4" />
+                )}
                 Add
               </Button>
             </div>
             
             {loading ? (
-              <div className="text-center py-8 text-muted-foreground">Loading...</div>
+              <div className="flex items-center justify-center py-8 text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading subreddits...
+              </div>
             ) : filteredSubreddits.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 No tracked subreddits yet. Add one above to get started.
@@ -355,7 +474,13 @@ export default function Subreddits() {
                 {filteredSubreddits.map((sub) => (
                   <div
                     key={sub.id}
-                    className="flex items-center justify-between p-4 rounded-lg border border-border hover:border-primary/30 transition-colors"
+                    className={cn(
+                      "flex items-center justify-between p-4 rounded-lg border transition-colors",
+                      scrapeStatus[sub.id]?.status === 'completed' && "border-success/30 bg-success/5",
+                      scrapeStatus[sub.id]?.status === 'failed' && "border-destructive/30 bg-destructive/5",
+                      scrapeStatus[sub.id]?.status === 'running' && "border-primary/30 bg-primary/5",
+                      !scrapeStatus[sub.id] && "border-border hover:border-primary/30"
+                    )}
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-sm font-medium">
@@ -364,23 +489,35 @@ export default function Subreddits() {
                       <div>
                         <p className="font-medium">{sub.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          Added {new Date(sub.createdAt).toLocaleDateString()}
+                          {scrapeStatus[sub.id]?.status === 'completed' && scrapeStatus[sub.id]?.stats ? (
+                            <span className="text-success">
+                              {scrapeStatus[sub.id].stats!.postsScraped} posts, {scrapeStatus[sub.id].stats!.ideasGenerated} ideas
+                            </span>
+                          ) : scrapeStatus[sub.id]?.status === 'failed' ? (
+                            <span className="text-destructive">
+                              {scrapeStatus[sub.id].message || 'Failed'}
+                            </span>
+                          ) : (
+                            `Added ${new Date(sub.createdAt).toLocaleDateString()}`
+                          )}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button 
                         size="sm" 
+                        variant={getButtonVariant(sub.id)}
+                        disabled={scrapeStatus[sub.id]?.status === 'running'}
                         onClick={() => handleRunScrape(sub.id, sub.name)}
                       >
-                        <Play className="mr-2 h-4 w-4" />
-                        Run Scrape
+                        {getButtonContent(sub.id)}
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         className="text-destructive hover:text-destructive"
                         onClick={() => handleDeleteSubreddit(sub.id, sub.name)}
+                        disabled={scrapeStatus[sub.id]?.status === 'running'}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

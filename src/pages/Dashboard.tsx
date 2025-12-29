@@ -168,7 +168,6 @@ export default function Dashboard() {
                   <SelectContent>
                     <SelectItem value="24h">Last 24h</SelectItem>
                     <SelectItem value="7d">Last 7 days</SelectItem>
-                    <SelectItem value="30d">Last 30 days</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -221,7 +220,6 @@ export default function Dashboard() {
                   <SelectContent>
                     <SelectItem value="24h">24 hours</SelectItem>
                     <SelectItem value="7d">7 days</SelectItem>
-                    <SelectItem value="30d">30 days</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

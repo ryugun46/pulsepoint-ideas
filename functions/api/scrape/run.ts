@@ -7,7 +7,7 @@ import { OpenRouterClient } from '../../lib/openrouter';
 
 interface ScrapeRequest {
   subredditId: string;
-  windowDays: number; // 1, 7, or 30
+  windowDays: number; // 1 or 7
 }
 
 export const onRequestPost = async (context: any) => {
@@ -30,9 +30,9 @@ export const onRequestPost = async (context: any) => {
     }
 
     // Validate windowDays
-    if (![1, 7, 30].includes(body.windowDays)) {
+    if (![1, 7].includes(body.windowDays)) {
       return new Response(JSON.stringify({
-        error: 'windowDays must be 1, 7, or 30',
+        error: 'windowDays must be 1 or 7',
       }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -117,14 +117,27 @@ async function runScrapeJob(
   try {
     // Initialize clients
     console.log(`[SCRAPE JOB ${runId}] Initializing Reddit and AI clients`);
+    
+    const userAgent = env.REDDIT_USER_AGENT || 'web:PulsePoint:v1.0.0 (by /u/pulsepoint)';
+    console.log(`[SCRAPE JOB ${runId}] Using Reddit User-Agent: ${userAgent}`);
+    
     const reddit = new RedditClient({
-      userAgent: env.REDDIT_USER_AGENT || 'web:PulsePoint:v1.0.0 (by /u/pulsepoint)',
+      userAgent,
     });
+
+    // Check for required API key
+    if (!env.OPENROUTER_API_KEY) {
+      console.error(`[SCRAPE JOB ${runId}] Missing OPENROUTER_API_KEY`);
+      throw new Error('OpenRouter API key is not configured. Please set OPENROUTER_API_KEY in environment variables.');
+    }
 
     const ai = new OpenRouterClient({
       apiKey: env.OPENROUTER_API_KEY,
+      // Model will be auto-selected if not provided
       model: env.OPENROUTER_MODEL,
     });
+
+    console.log(`[SCRAPE JOB ${runId}] OpenRouter client initialized (model will be auto-selected)`);
 
     // Calculate cutoff timestamp
     const cutoffDate = new Date();

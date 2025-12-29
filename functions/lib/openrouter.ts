@@ -1,17 +1,117 @@
-// OpenRouter API client for LLM calls
+// OpenRouter API client for LLM calls with automatic model selection
 
 export interface OpenRouterConfig {
   apiKey: string;
   model?: string;
 }
 
+// Preferred models for cost/performance balance (in order of preference)
+const PREFERRED_MODELS = [
+  'google/gemini-flash-1.5',
+  'anthropic/claude-3-haiku',
+  'openai/gpt-4o-mini',
+  'meta-llama/llama-3.1-8b-instruct',
+];
+
+const FALLBACK_MODEL = 'anthropic/claude-3.5-sonnet';
+
+interface OpenRouterModel {
+  id: string;
+  name: string;
+  context_length: number;
+  pricing: {
+    prompt: string;
+    completion: string;
+  };
+}
+
 export class OpenRouterClient {
   private config: OpenRouterConfig;
   private model: string;
+  private modelSelected: boolean = false;
 
   constructor(config: OpenRouterConfig) {
     this.config = config;
-    this.model = config.model || 'anthropic/claude-3.5-sonnet';
+    // Use provided model or fallback - actual selection happens on first call
+    this.model = config.model || FALLBACK_MODEL;
+  }
+
+  /**
+   * Selects the best available model from OpenRouter
+   * Queries the models API and picks the best affordable model
+   */
+  private async selectBestModel(): Promise<string> {
+    if (this.modelSelected) {
+      return this.model;
+    }
+
+    try {
+      console.log('[OpenRouter] Fetching available models...');
+      const response = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        console.warn('[OpenRouter] Failed to fetch models, using fallback');
+        this.modelSelected = true;
+        return this.model;
+      }
+
+      const data = await response.json() as { data: OpenRouterModel[] };
+      const availableModels = new Set(data.data.map(m => m.id));
+
+      console.log(`[OpenRouter] Found ${availableModels.size} available models`);
+
+      // Try preferred models in order
+      for (const preferredModel of PREFERRED_MODELS) {
+        if (availableModels.has(preferredModel)) {
+          console.log(`[OpenRouter] Selected model: ${preferredModel}`);
+          this.model = preferredModel;
+          this.modelSelected = true;
+          return this.model;
+        }
+      }
+
+      // If none of the preferred models are available, find a good alternative
+      // Filter for models with good context length and low cost
+      const goodModels = data.data.filter(m => {
+        const promptCost = parseFloat(m.pricing.prompt);
+        return (
+          m.context_length >= 8000 &&
+          promptCost < 0.01 &&
+          !m.id.includes('vision') &&
+          !m.id.includes('image')
+        );
+      });
+
+      if (goodModels.length > 0) {
+        // Sort by cost (cheapest first)
+        goodModels.sort((a, b) => {
+          const costA = parseFloat(a.pricing.prompt);
+          const costB = parseFloat(b.pricing.prompt);
+          return costA - costB;
+        });
+
+        this.model = goodModels[0].id;
+        console.log(`[OpenRouter] Auto-selected model: ${this.model}`);
+        this.modelSelected = true;
+        return this.model;
+      }
+
+      // Fallback to default
+      console.log(`[OpenRouter] Using fallback model: ${FALLBACK_MODEL}`);
+      this.model = FALLBACK_MODEL;
+      this.modelSelected = true;
+      return this.model;
+
+    } catch (error) {
+      console.error('[OpenRouter] Error selecting model:', error);
+      this.modelSelected = true;
+      return this.model;
+    }
   }
 
   private async call(
@@ -19,6 +119,9 @@ export class OpenRouterClient {
     temperature = 0.7,
     maxTokens = 4000
   ): Promise<string> {
+    // Ensure we have selected the best model
+    await this.selectBestModel();
+
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -45,6 +148,13 @@ export class OpenRouterClient {
     };
     
     return data.choices[0]?.message?.content || '';
+  }
+
+  /**
+   * Get the currently selected model (for logging/debugging)
+   */
+  getSelectedModel(): string {
+    return this.model;
   }
 
   async extractProblems(text: string, source: string): Promise<string[]> {
@@ -192,4 +302,3 @@ Example format:
     }
   }
 }
-
